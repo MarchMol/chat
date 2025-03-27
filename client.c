@@ -25,7 +25,9 @@ int main(int argc, char *argv[]){
     if (socket_fd<0){
         raise_error("Error abriendo socket");
     }
-
+   
+    char name[255];
+    strcpy(name, argv[3]);
     server = gethostbyname(argv[1]);
     if (server==NULL){
         perror("Error host no existe");
@@ -53,29 +55,46 @@ int main(int argc, char *argv[]){
 
     // Ciclo de comunicacion
     char buffer[255];
+    char handshake[1024];
     int n;
-    while(1){
-        // Escritura
-        bzero(buffer, 255);
-        fgets(buffer, 255, stdin);
-        n = write(socket_fd, buffer, strlen(buffer));
-        if(n<0){
-            raise_error("Error escribiendo");
-        }
-        // Lectura
-        bzero(buffer, 255);
-        n = read(socket_fd, buffer, 255);
+
+    snprintf(handshake, sizeof(handshake),
+    "GET ?name=%s HTTP/1.1\r\n"
+    "Host: localhost:%d\r\n"
+    "Upgrade: websocket\r\n"
+    "Connection: Upgrade\r\n"
+    "\r\n", name, port_n);
+    n = write(socket_fd, handshake, strlen(handshake));
+    if(n<0){
+        raise_error("Error escribiendo");
+    }
+    n = read(socket_fd, buffer, 255);
         if(n<0){
             raise_error("Error leyendo");
         }
         printf("Server: %s\n", buffer);
 
-        // Condicion de serrado
-        int i = strncmp("close",buffer, 5);
-        if (i == 0){
-            break;
-        }
-    }
+        // Escritura
+        // bzero(buffer, 255);
+        // fgets(buffer, 255, stdin);
+        // n = write(socket_fd, buffer, strlen(buffer));
+        // if(n<0){
+        //     raise_error("Error escribiendo");
+        // }
+        // // Lectura
+        // bzero(buffer, 255);
+        // n = read(socket_fd, buffer, 255);
+        // if(n<0){
+        //     raise_error("Error leyendo");
+        // }
+        // printf("Server: %s\n", buffer);
+
+        // // Condicion de serrado
+        // int i = strncmp("close",buffer, 5);
+        // if (i == 0){
+        //     break;
+        // }
+    
     close(socket_fd);
     return 0;
 }

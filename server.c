@@ -5,6 +5,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 
 void raise_error(const char *msg){
     perror(msg);
@@ -48,30 +49,54 @@ int main(int argc, char *argv[]){
     if (accepted_sockfd<0){
         raise_error("Error aceptando");
     }
+    getpeername(accepted_sockfd, (struct sockaddr *) &cli_addr, &clilen);
+    char client_ip[INET_ADDRSTRLEN]; // Buffer for IP address
+    inet_ntop(AF_INET, &cli_addr.sin_addr, client_ip, sizeof(client_ip));
 
-    // Constant read/write
+    // Reading loop
     int n;
     char buffer[255];
     while(1){
-        // Lee si puede
-        bzero(buffer, 255);
         n = read(accepted_sockfd, buffer, 255);
         if (n<0){
             raise_error("Error leyendo");
         }
-        printf("Client: %s\n", buffer);
-        // Escribe si puede
-        bzero(buffer, 255);
-        fgets(buffer, 255, stdin);
-        n = write(accepted_sockfd, buffer, strlen(buffer));
-        if (n<0){
-            raise_error("Error escribiendo");
+        printf("Request\n%s",buffer);
+        char *get_line;
+        get_line= strtok(buffer, "\r\n");
+        char method[10], path[100], http_version[10];
+        sscanf(get_line, "%s %s %s", method, path, http_version);
+
+        char name_str[50];
+        char *name_start = strstr(path, "?");
+        if (name_start) {
+            sscanf(name_start, "?name=%49s", name_str);
         }
-        // Cerrar servidor desde cliente
-        int i = strncmp("close",buffer, 5);
-        if (i == 0){
-            break;
-        }
+        printf("Name: %s IP: %s",name_str, client_ip);
+        fflush(stdout);
+
+
+
+
+        // // Lee si puede
+        // bzero(buffer, 255);
+        // n = read(accepted_sockfd, buffer, 255);
+        // if (n<0){
+        //     raise_error("Error leyendo");
+        // }
+        // printf("Client: %s\n", buffer);
+        // // Escribe si puede
+        // bzero(buffer, 255);
+        // fgets(buffer, 255, stdin);
+        // n = write(accepted_sockfd, buffer, strlen(buffer));
+        // if (n<0){
+        //     raise_error("Error escribiendo");
+        // }
+        // // Cerrar servidor desde cliente
+        // int i = strncmp("close",buffer, 5);
+        // if (i == 0){
+        //     break;
+        // }
     }
     close(accepted_sockfd);
     close(scoket_fd);
