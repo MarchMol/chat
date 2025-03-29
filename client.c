@@ -12,6 +12,31 @@ void raise_error(const char *msg){
     exit(1);
 }
 
+// Función para enviar un mensaje para cambiar el estatus
+void change_status(int socket_fd, const char *username, int status) {
+    char message[256];
+    int username_len = strlen(username);
+    
+    // Validamos el estatus
+    if (status < 0 || status > 3) {
+        printf("Estatus inválido. Debe ser entre 0 y 3.\n");
+        return;
+    }
+
+    // Construimos el mensaje
+    message[0] = 3;  // Tipo de mensaje (3 para cambiar estatus)
+    message[1] = username_len;  // Longitud del nombre de usuario
+    memcpy(message + 2, username, username_len);  // Nombre del usuario
+    message[2 + username_len] = status;  // Estatus (0 a 3)
+
+    // Enviamos el mensaje al servidor
+    int n = write(socket_fd, message, 2 + username_len + 1);
+    if (n < 0) {
+        raise_error("Error escribiendo el mensaje");
+    }
+    printf("Estatus de %s cambiado a %d.\n", username, status);
+}
+
 int main(int argc, char *argv[]){
     int socket_fd, port_n;
     struct sockaddr_in serv_addr;
