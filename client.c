@@ -82,6 +82,58 @@ void receive_message(int socket_fd) {
     }
 }
 
+void request_history(int socket_fd, const char *chat_name) {
+    int chat_name_len = strlen(chat_name);
+    char buffer[256];
+
+    // Tipo de mensaje = 5 (solicitar historial)
+    buffer[0] = 5;
+    buffer[1] = chat_name_len;
+    memcpy(buffer + 2, chat_name, chat_name_len);
+
+    // Enviar la solicitud al servidor
+    int n = write(socket_fd, buffer, 2 + chat_name_len);
+    if (n < 0) {
+        raise_error("Error solicitando historial de mensajes");
+    }
+
+    // Esperar respuesta del servidor
+    receive_history(socket_fd);
+}
+
+void receive_history(int socket_fd) {
+    char buffer[1024];
+    int n = read(socket_fd, buffer, sizeof(buffer));
+    if (n < 0) {
+        raise_error("Error leyendo respuesta del servidor");
+    }
+
+    // Analizar el tipo de respuesta
+    if (buffer[0] == 56) {
+        int num_messages = buffer[1];
+        printf("Número de mensajes en el historial: %d\n", num_messages);
+
+        int offset = 2;
+        for (int i = 0; i < num_messages; i++) {
+            int username_len = buffer[offset++];
+            char username[256];
+            memcpy(username, buffer + offset, username_len);
+            username[username_len] = '\0';
+            offset += username_len;
+
+            int message_len = buffer[offset++];
+            char message[256];
+            memcpy(message, buffer + offset, message_len);
+            message[message_len] = '\0';
+            offset += message_len;
+
+            printf("Mensaje de %s: %s\n", username, message);
+        }
+    } else {
+        printf("Error: %s\n", buffer + 1);  // Mensaje de error
+    }
+}
+
 int main(int argc, char *argv[]){
     int socket_fd, port_n;
     struct sockaddr_in serv_addr;

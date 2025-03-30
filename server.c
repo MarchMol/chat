@@ -12,6 +12,83 @@ void raise_error(const char *msg){
     exit(1);
 }
 
+typedef struct {
+    char username[50];
+    char message[256];
+} Message;
+
+// Estructura que almacena el historial de mensajes por usuario
+typedef struct {
+    char chat_name[50];
+    Message messages[100];  // Límite de 100 mensajes por chat
+    int message_count;
+} ChatHistory;
+
+ChatHistory chat_histories[10];  // Soportamos hasta 10 chats diferentes
+int chat_count = 0;
+
+void add_message_to_history(const char *chat_name, const char *username, const char *message) {
+    for (int i = 0; i < chat_count; i++) {
+        if (strcmp(chat_histories[i].chat_name, chat_name) == 0) {
+            // Encontramos el chat correspondiente
+            if (chat_histories[i].message_count < 100) {
+                // Añadir el mensaje al historial
+                strcpy(chat_histories[i].messages[chat_histories[i].message_count].username, username);
+                strcpy(chat_histories[i].messages[chat_histories[i].message_count].message, message);
+                chat_histories[i].message_count++;
+            }
+            return;
+        }
+    }
+
+    // Si no encontramos el chat, lo creamos
+    strcpy(chat_histories[chat_count].chat_name, chat_name);
+    strcpy(chat_histories[chat_count].messages[0].username, username);
+    strcpy(chat_histories[chat_count].messages[0].message, message);
+    chat_histories[chat_count].message_count = 1;
+    chat_count++;
+}
+
+void handle_get_history(int client_fd, const char *chat_name) {
+    for (int i = 0; i < chat_count; i++) {
+        if (strcmp(chat_histories[i].chat_name, chat_name) == 0) {
+            // Enviar la cantidad de mensajes
+            char buffer[1024];
+            buffer[0] = 56;  // Tipo de mensaje (56 para respuesta de historial)
+
+            // Número de mensajes
+            buffer[1] = chat_histories[i].message_count;
+
+            // Enviar cada mensaje
+            int offset = 2;  // Empieza después del tipo y número de mensajes
+            for (int j = 0; j < chat_histories[i].message_count; j++) {
+                int username_len = strlen(chat_histories[i].messages[j].username);
+                int message_len = strlen(chat_histories[i].messages[j].message);
+
+                buffer[offset++] = username_len;
+                memcpy(buffer + offset, chat_histories[i].messages[j].username, username_len);
+                offset += username_len;
+
+                buffer[offset++] = message_len;
+                memcpy(buffer + offset, chat_histories[i].messages[j].message, message_len);
+                offset += message_len;
+            }
+
+            // Enviar el mensaje completo al cliente
+            int n = write(client_fd, buffer, offset);
+            if (n < 0) {
+                raise_error("Error enviando el historial de mensajes");
+            }
+            return;
+        }
+    }
+
+    // Si no se encuentra el historial
+    char error_msg[] = "No se encontró historial para este chat.";
+    write(client_fd, error_msg, sizeof(error_msg));
+}
+
+
 // Función para enviar un mensaje de estatus actualizado a todos los clientes
 void broadcast_status_change(int *client_sockets, int num_clients, const char *username, int status) {
     char message[256];
@@ -185,6 +262,8 @@ int main(int argc, char *argv[]){
 
             if (strcmp(recipient, "~") == 0) {  // Enviar mensaje al chat general
                 send_message_to_all(client->socket_fd, client->username, message);
+
+                add_message_to_history("general", sender, message);
             } else {  // Enviar mensaje a un usuario específico
                 int recipient_fd = find_user_socket(recipient);
                 if (recipient_fd == -1) {
@@ -193,8 +272,19 @@ int main(int argc, char *argv[]){
                     write(client->socket_fd, error_msg, sizeof(error_msg));
                 } else {
                     send_message_to_client(recipient_fd, client->username, message);
+
+                    add_message_to_history(recipient, recipient, message);
                 }
             }
+        }
+        else if (buffer[0] == 5) {
+            int username_len = buffer[1];
+            char username[50];
+            memcpy(username, buffer + 2, username_len);
+            username[username_len] = '\0';
+
+            // Llamamos a la función para obtener el historial del chat solicitado
+            handle_get_history(accepted_sockfd, username);
         }
     
     }
