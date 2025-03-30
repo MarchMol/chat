@@ -37,6 +37,51 @@ void change_status(int socket_fd, const char *username, int status) {
     printf("Estatus de %s cambiado a %d.\n", username, status);
 }
 
+void send_message(int socket_fd, const char *username, const char *dest, const char *message) {
+    int dest_len = strlen(dest);
+    int message_len = strlen(message);
+    char buffer[256];
+
+    // Tipo de mensaje = 4 (enviar mensaje)
+    buffer[0] = 4;
+    buffer[1] = dest_len;  // Longitud del nombre del destinatario
+    memcpy(buffer + 2, dest, dest_len);  // Nombre del destinatario
+    buffer[2 + dest_len] = message_len;  // Longitud del mensaje
+    memcpy(buffer + 3 + dest_len, message, message_len);  // Mensaje
+
+    // Enviar el mensaje al servidor
+    int n = write(socket_fd, buffer, 3 + dest_len + message_len);
+    if (n < 0) {
+        raise_error("Error escribiendo el mensaje");
+    }
+    printf("Mensaje enviado a %s: %s\n", dest, message);
+}
+
+void receive_message(int socket_fd) {
+    char buffer[256];
+    int n = read(socket_fd, buffer, 256);
+    if (n < 0) {
+        raise_error("Error leyendo la respuesta del servidor");
+    }
+
+    // Analizar el tipo de mensaje recibido
+    int response_type = buffer[0];
+    if (response_type == 55) {  // Tipo 55: Recibió mensaje
+        int username_len = buffer[1];
+        char origin[256];
+        memcpy(origin, buffer + 2, username_len);
+        origin[username_len] = '\0';  // Asegurar el fin de la cadena
+
+        int message_len = buffer[2 + username_len];
+        char message[256];
+        memcpy(message, buffer + 3 + username_len, message_len);
+        message[message_len] = '\0';  // Asegurar el fin de la cadena
+
+        // Mostrar el mensaje recibido
+        printf("Mensaje recibido de %s: %s\n", origin, message);
+    }
+}
+
 int main(int argc, char *argv[]){
     int socket_fd, port_n;
     struct sockaddr_in serv_addr;

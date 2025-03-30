@@ -32,6 +32,41 @@ void broadcast_status_change(int *client_sockets, int num_clients, const char *u
     }
 }
 
+// Función para enviar un mensaje a todos los clientes conectados
+void send_message_to_all(int sender_fd, const char *sender, const char *message) {
+    int sender_len = strlen(sender);
+    int message_len = strlen(message);
+    char buffer[256];
+    
+    buffer[0] = 55;  // Tipo de mensaje
+    buffer[1] = sender_len;  // Longitud del nombre del usuario
+    memcpy(buffer + 2, sender, sender_len);  // Nombre del usuario
+    buffer[2 + sender_len] = message_len;  // Longitud del mensaje
+    memcpy(buffer + 3 + sender_len, message, message_len);  // Contenido del mensaje
+
+    // Enviar el mensaje a todos los clientes conectados
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (clients[i] != NULL && clients[i]->socket_fd != sender_fd) {
+            write(clients[i]->socket_fd, buffer, 3 + sender_len + message_len);
+        }
+    }
+}
+
+// Función para enviar un mensaje a un cliente específico
+void send_message_to_client(int recipient_fd, const char *sender, const char *message) {
+    int sender_len = strlen(sender);
+    int message_len = strlen(message);
+    char buffer[256];
+
+    buffer[0] = 55;  // Tipo de mensaje
+    buffer[1] = sender_len;  // Longitud del nombre del usuario
+    memcpy(buffer + 2, sender, sender_len);  // Nombre del usuario
+    buffer[2 + sender_len] = message_len;  // Longitud del mensaje
+    memcpy(buffer + 3 + sender_len, message, message_len);  // Contenido del mensaje
+
+    write(recipient_fd, buffer, 3 + sender_len + message_len);
+}
+
 int main(int argc, char *argv[]){
     // Argument Check
     if (argc<2){
@@ -136,6 +171,32 @@ int main(int argc, char *argv[]){
             broadcast_status_change(client_sockets, num_clients, username, status);
             printf("Cambio de estatus: %s ahora está en estatus %d\n", username, status);
         }
+        // Procesar el mensaje de envío (tipo 4)
+        else if (buffer[0] == 4) {
+            int username_len = buffer[1];
+            char recipient[50];
+            memcpy(recipient, buffer + 2, username_len);
+            recipient[username_len] = '\0';
+
+            int message_len = buffer[2 + username_len];
+            char message[256];
+            memcpy(message, buffer + 3 + username_len, message_len);
+            message[message_len] = '\0';
+
+            if (strcmp(recipient, "~") == 0) {  // Enviar mensaje al chat general
+                send_message_to_all(client->socket_fd, client->username, message);
+            } else {  // Enviar mensaje a un usuario específico
+                int recipient_fd = find_user_socket(recipient);
+                if (recipient_fd == -1) {
+                    // El usuario no está conectado, responder con un error
+                    char error_msg[] = "El usuario no existe.";
+                    write(client->socket_fd, error_msg, sizeof(error_msg));
+                } else {
+                    send_message_to_client(recipient_fd, client->username, message);
+                }
+            }
+        }
+    
     }
     close(accepted_sockfd);
     close(scoket_fd);
