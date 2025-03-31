@@ -101,7 +101,7 @@ void handle_server_response(int socket_fd) {
 void change_status(int socket_fd, const char *username, int status) {
     char message[256];
     int username_len = strlen(username);
-    
+
     // Validamos el estatus
     if (status < 0 || status > 3) {
         printf("Estatus inválido. Debe ser entre 0 y 3.\n");
@@ -128,7 +128,7 @@ void send_message(int socket_fd, const char *username, const char *dest, const c
     char buffer[256];
 
     // Tipo de mensaje = 4 (enviar mensaje)
-    buffer[0] = 4;
+    buffer[0] = 4; 
     buffer[1] = dest_len;  // Longitud del nombre del destinatario
     memcpy(buffer + 2, dest, dest_len);  // Nombre del destinatario
     buffer[2 + dest_len] = message_len;  // Longitud del mensaje
@@ -224,64 +224,57 @@ int main(int argc, char *argv[]){
     struct sockaddr_in serv_addr;
     struct hostent *server;
 
-    if (argc<3){
-        raise_error("Se requiere <hostname> <puerto>");
+    if (argc < 4) {
+        raise_error("Uso: ./client <hostname> <puerto> <nombre>");
     }
+
     port_n = atoi(argv[2]);
     socket_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (socket_fd<0){
+    if (socket_fd < 0){
         raise_error("Error abriendo socket");
     }
-   
+
     char name[255];
     strcpy(name, argv[3]);
+    if (!is_valid_username(name)) {
+        printf("Nombre de usuario inválido. No puede ser vacío ni '~'.\n");
+        exit(1);
+    }
+
     server = gethostbyname(argv[1]);
-    if (server==NULL){
+    if (server == NULL){
         perror("Error host no existe");
     }
 
     bzero((char *) &serv_addr, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
-    bcopy(
-        (char *) server ->h_addr, 
-        (char *) &serv_addr.sin_addr.s_addr, 
-        server->h_length
-    );
+    bcopy((char *) server->h_addr, (char *) &serv_addr.sin_addr.s_addr, server->h_length);
     serv_addr.sin_port = htons(port_n);
 
-    // Connect
-    if (
-        connect(
-            socket_fd, 
-            (struct sockaddr *) &serv_addr,
-            sizeof(serv_addr)
-        ) < 0
-    ){
+    if (connect(socket_fd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0){
         raise_error("Conexion fallo");
     }
 
-    // Ciclo de comunicacion
     char buffer[255];
     char handshake[1024];
     int n;
 
     snprintf(handshake, sizeof(handshake),
-    "GET ?name=%s HTTP/1.1\r\n"
-    "Host: localhost:%d\r\n"
-    "Upgrade: websocket\r\n"
-    "Connection: Upgrade\r\n"
-    "\r\n", name, port_n);
+        "GET ?name=%s HTTP/1.1\r\n"
+        "Host: localhost:%d\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n\r\n", name, port_n);
     n = write(socket_fd, handshake, strlen(handshake));
-    if(n<0){
+    if(n < 0){
         raise_error("Error escribiendo");
     }
     n = read(socket_fd, buffer, 255);
-        if(n<0){
-            raise_error("Error leyendo");
-        }
-        printf("Server: %s\n", buffer);
+    if(n < 0){
+        raise_error("Error leyendo");
+    }
+    printf("Server: %s\n", buffer);
 
-        // Escritura
+    // Escritura
         // bzero(buffer, 255);
         // fgets(buffer, 255, stdin);
         // n = write(socket_fd, buffer, strlen(buffer));
@@ -301,7 +294,71 @@ int main(int argc, char *argv[]){
         // if (i == 0){
         //     break;
         // }
-    
+    // Menú interactivo
+    int opcion;
+    char input[256];
+    do {
+        printf("\nMenú de opciones:\n");
+        printf("1. Listar usuarios conectados\n");
+        printf("2. Obtener información de un usuario\n");
+        printf("3. Cambiar estatus\n");
+        printf("4. Enviar mensaje\n");
+        printf("5. Ver historial de chat\n");
+        printf("6. Esperar mensaje del servidor\n");
+        printf("0. Salir\n");
+        printf("Selecciona una opción: ");
+        scanf("%d", &opcion);
+        getchar();
+
+        switch (opcion) {
+            case 1:
+                list_users(socket_fd);
+                handle_server_response(socket_fd);
+                break;
+            case 2:
+                printf("Nombre del usuario: ");
+                fgets(input, sizeof(input), stdin);
+                input[strcspn(input, "\n")] = '\0';
+                get_user_info(socket_fd, input);
+                handle_server_response(socket_fd);
+                break;
+            case 3: {
+                printf("Nuevo estatus (1 = ACTIVO, 2 = OCUPADO, 3 = INACTIVO): ");
+                int status;
+                scanf("%d", &status);
+                getchar();
+                change_status(socket_fd, name, status);
+                break;
+            }
+            case 4:
+                printf("Enviar a (~ para general o nombre del usuario): ");
+                fgets(input, sizeof(input), stdin);
+                input[strcspn(input, "\n")] = '\0';
+                char destino[256];
+                strcpy(destino, input);
+                printf("Mensaje: ");
+                fgets(input, sizeof(input), stdin);
+                input[strcspn(input, "\n")] = '\0';
+                send_message(socket_fd, name, destino, input);
+                break;
+            case 5:
+                printf("Historial con (~ para general o nombre del usuario): ");
+                fgets(input, sizeof(input), stdin);
+                input[strcspn(input, "\n")] = '\0';
+                request_history(socket_fd, input);
+                break;
+            case 6:
+                printf("Esperando mensaje...\n");
+                handle_server_response(socket_fd);
+                break;
+            case 0:
+                printf("Cerrando sesión...\n");
+                break;
+            default:
+                printf("Opción inválida.\n");
+        }
+    } while (opcion != 0);
+
     close(socket_fd);
     return 0;
 }
