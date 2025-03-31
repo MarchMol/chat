@@ -48,7 +48,7 @@ int websocket_send(int socket_fd, const char *data, size_t data_len) {
     uint8_t frame[1024];
     size_t pos = 0;
 
-    frame[pos++] = 0x81; // FIN + opcode 0x1 (text/binary según lo manejes)
+    frame[pos++] = 0x82; // FIN + opcode 0x2 (binary)
 
     // Payload length
     if (data_len <= 125) {
@@ -82,6 +82,13 @@ int websocket_receive(int socket_fd, char *output, size_t max_len) {
 
     int fin = (header[0] >> 7) & 1;
     int opcode = header[0] & 0x0F;
+    if (opcode == 0x8) {
+        printf("Conexión cerrada por el servidor.\n");
+        return 0;
+    } else if (opcode != 0x1 && opcode != 0x2 ) {
+        printf("Opcode desconocido: %d\n", opcode);
+        return -1;
+    }
     int masked = (header[1] >> 7) & 1;
     int payload_len = header[1] & 0x7F;
 
@@ -100,7 +107,7 @@ int websocket_receive(int socket_fd, char *output, size_t max_len) {
 
     if (payload_len >= max_len) return -1;
 
-    uint8_t mask[4];
+    uint8_t mask[4] = {0};
     if (masked) {
         if (read(socket_fd, mask, 4) != 4) return -1;
     }
@@ -111,7 +118,7 @@ int websocket_receive(int socket_fd, char *output, size_t max_len) {
         output[i] = masked ? (byte ^ mask[i % 4]) : byte;
     }
 
-    output[payload_len] = '\0';  // 🔥 Asegurar fin de cadena si es texto
+    output[payload_len] = '\0';  // Asegurar fin de cadena si es texto
     return payload_len;
 }
 
