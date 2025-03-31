@@ -89,23 +89,32 @@ int websocket_receive(int socket_fd, char *output, size_t max_len) {
         uint8_t ext[2];
         if (read(socket_fd, ext, 2) != 2) return -1;
         payload_len = (ext[0] << 8) | ext[1];
+    } else if (payload_len == 127) {
+        uint8_t ext[8];
+        if (read(socket_fd, ext, 8) != 8) return -1;
+        payload_len = 0;
+        for (int i = 0; i < 8; i++) {
+            payload_len = (payload_len << 8) | ext[i];
+        }
     }
 
-    if (payload_len > max_len) return -1;
+    if (payload_len >= max_len) return -1;
 
-    uint8_t mask[4] = {0};
+    uint8_t mask[4];
     if (masked) {
         if (read(socket_fd, mask, 4) != 4) return -1;
     }
 
-    for (int i = 0; i < payload_len; ++i) {
+    for (int i = 0; i < payload_len; i++) {
         uint8_t byte;
         if (read(socket_fd, &byte, 1) != 1) return -1;
         output[i] = masked ? (byte ^ mask[i % 4]) : byte;
     }
 
+    output[payload_len] = '\0';  // 🔥 Asegurar fin de cadena si es texto
     return payload_len;
 }
+
 
 void raise_error(const char *msg){
     perror(msg);
@@ -307,7 +316,8 @@ void receive_history(int socket_fd) {
             printf("Mensaje de %s: %s\n", username, message);
         }
     } else {
-        printf("Error: %s\n", buffer + 1);  // Mensaje de error
+        fwrite(buffer + 1, 1, n - 1, stdout);
+        printf("\n");// Mensaje de error
     }
 }
 
