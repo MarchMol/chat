@@ -8,21 +8,78 @@
 #include <netdb.h>
 void receive_message(int socket_fd);
 void receive_history(int socket_fd);
+// función para hacer el framing WebSocket básico (sin fragmentación)
+int websocket_send(int socket_fd, const char *data, size_t data_len) {
+    uint8_t frame[1024];
+    size_t pos = 0;
 
+    frame[pos++] = 0x81; // FIN + opcode 0x1 (text/binary según lo manejes)
+
+    // Payload length
+    if (data_len <= 125) {
+        frame[pos++] = 0x80 | data_len; // Mask bit 1 + len
+    } else if (data_len <= 65535) {
+        frame[pos++] = 0x80 | 126;
+        frame[pos++] = (data_len >> 8) & 0xFF;
+        frame[pos++] = data_len & 0xFF;
+    } else {
+        // Not expected here, pero puedes extender para > 65535
+        return -1;
+    }
+
+    // Masking key (cliente siempre enmascara)
+    uint8_t mask[4];
+    for (int i = 0; i < 4; ++i) {
+        mask[i] = rand() % 256;
+        frame[pos++] = mask[i];
+    }
+
+    // Enmascarar y copiar datos
+    for (size_t i = 0; i < data_len; ++i) {
+        frame[pos++] = data[i] ^ mask[i % 4];
+    }
+
+    return write(socket_fd, frame, pos);
+}
+int websocket_receive(int socket_fd, char *output, size_t max_len) {
+    uint8_t header[2];
+    if (read(socket_fd, header, 2) != 2) return -1;
+
+    int fin = (header[0] >> 7) & 1;
+    int opcode = header[0] & 0x0F;
+    int masked = (header[1] >> 7) & 1;
+    int payload_len = header[1] & 0x7F;
+
+    if (payload_len == 126) {
+        uint8_t ext[2];
+        if (read(socket_fd, ext, 2) != 2) return -1;
+        payload_len = (ext[0] << 8) | ext[1];
+    }
+
+    if (payload_len > max_len) return -1;
+
+    uint8_t mask[4] = {0};
+    if (masked) {
+        if (read(socket_fd, mask, 4) != 4) return -1;
+    }
+
+    for (int i = 0; i < payload_len; ++i) {
+        uint8_t byte;
+        if (read(socket_fd, &byte, 1) != 1) return -1;
+        output[i] = masked ? (byte ^ mask[i % 4]) : byte;
+    }
+
+    return payload_len;
+}
 
 void raise_error(const char *msg){
     perror(msg);
     exit(1);
 }
-// Validar nombre antes del handshake
-int is_valid_username(const char *name) {
-    return (strlen(name) > 0 && strcmp(name, "~") != 0);
-}
-
 // Enviar solicitud de listado de usuarios (tipo 1)
 void list_users(int socket_fd) {
     char buffer[1] = {1};  // Tipo de mensaje 1
-    write(socket_fd, buffer, 1);
+    websocket_send(socket_fd, buffer, 1);
 }
 
 // Obtener info de un usuario específico (tipo 2)
@@ -32,16 +89,15 @@ void get_user_info(int socket_fd, const char *username) {
     buffer[0] = 2;           // Tipo de mensaje
     buffer[1] = len;         // Longitud del nombre
     memcpy(buffer + 2, username, len);
-    write(socket_fd, buffer, 2 + len);
+    websocket_send(socket_fd, buffer, 2 + len);
 }
 
 // Procesar respuesta general del servidor
 void handle_server_response(int socket_fd) {
     char buffer[1024];
-    int n = read(socket_fd, buffer, sizeof(buffer));
-    if (n < 0) {
-        raise_error("Error leyendo respuesta del servidor");
-    }
+    int n = websocket_receive(socket_fd, buffer, sizeof(buffer));
+    if (n <= 0) raise_error("Error al recibir datos del servidor.");
+
 
     int tipo = buffer[0];
     switch (tipo) {
@@ -118,7 +174,7 @@ void change_status(int socket_fd, const char *username, int status) {
     message[2 + username_len] = status;  // Estatus (0 a 3)
 
     // Enviamos el mensaje al servidor
-    int n = write(socket_fd, message, 2 + username_len + 1);
+    int n = websocket_send(socket_fd, message, 2 + username_len + 1);
     if (n < 0) {
         raise_error("Error escribiendo el mensaje");
     }
@@ -138,7 +194,7 @@ void send_message(int socket_fd, const char *username, const char *dest, const c
     memcpy(buffer + 3 + dest_len, message, message_len);  // Mensaje
 
     // Enviar el mensaje al servidor
-    int n = write(socket_fd, buffer, 3 + dest_len + message_len);
+    int n = websocket_send(socket_fd, buffer, 3 + dest_len + message_len);
     if (n < 0) {
         raise_error("Error escribiendo el mensaje");
     }
@@ -147,10 +203,8 @@ void send_message(int socket_fd, const char *username, const char *dest, const c
 
 void receive_message(int socket_fd) {
     char buffer[256];
-    int n = read(socket_fd, buffer, 256);
-    if (n < 0) {
-        raise_error("Error leyendo la respuesta del servidor");
-    }
+    int n = websocket_receive(socket_fd, buffer, sizeof(buffer));
+    if (n < 0) raise_error("Error leyendo respuesta del servidor");
 
     // Analizar el tipo de mensaje recibido
     int response_type = buffer[0];
@@ -180,7 +234,7 @@ void request_history(int socket_fd, const char *chat_name) {
     memcpy(buffer + 2, chat_name, chat_name_len);
 
     // Enviar la solicitud al servidor
-    int n = write(socket_fd, buffer, 2 + chat_name_len);
+    int n = websocket_send(socket_fd, buffer, 2 + chat_name_len);
     if (n < 0) {
         raise_error("Error solicitando historial de mensajes");
     }
@@ -191,7 +245,7 @@ void request_history(int socket_fd, const char *chat_name) {
 
 void receive_history(int socket_fd) {
     char buffer[1024];
-    int n = read(socket_fd, buffer, sizeof(buffer));
+    int n = websocket_receive(socket_fd, buffer, sizeof(buffer));
     if (n < 0) {
         raise_error("Error leyendo respuesta del servidor");
     }
@@ -239,10 +293,6 @@ int main(int argc, char *argv[]){
 
     char name[255];
     strcpy(name, argv[3]);
-    if (!is_valid_username(name)) {
-        printf("Nombre de usuario inválido. No puede ser vacío ni '~'.\n");
-        exit(1);
-    }
 
     server = gethostbyname(argv[1]);
     if (server == NULL){
@@ -253,7 +303,11 @@ int main(int argc, char *argv[]){
     serv_addr.sin_family = AF_INET;
     bcopy((char *) server->h_addr, (char *) &serv_addr.sin_addr.s_addr, server->h_length);
     serv_addr.sin_port = htons(port_n);
-
+    // Validar nombre antes del handshake
+    if (strcmp(name, "~") == 0 || strlen(name) == 0) {
+        raise_error("El nombre de usuario no puede ser '~' ni vacío.");
+    }    
+    // Conexión 
     if (connect(socket_fd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0){
         raise_error("Conexion fallo");
     }
@@ -263,19 +317,28 @@ int main(int argc, char *argv[]){
     int n;
 
     snprintf(handshake, sizeof(handshake),
-        "GET ?name=%s HTTP/1.1\r\n"
-        "Host: localhost:%d\r\n"
+        "GET /?name=%s HTTP/1.1\r\n"
+        "Host: %s:%d\r\n"
         "Upgrade: websocket\r\n"
-        "Connection: Upgrade\r\n\r\n", name, port_n);
+        "Connection: Upgrade\r\n"
+        "Sec-WebSocket-Version: 13\r\n"
+        "Sec-WebSocket-Key: x3JJHMbDL1EzLkh9GBhXDw==\r\n"
+    "\r\n", name, argv[1], port_n);
+
     n = write(socket_fd, handshake, strlen(handshake));
     if(n < 0){
         raise_error("Error escribiendo");
     }
-    n = read(socket_fd, buffer, 255);
-    if(n < 0){
-        raise_error("Error leyendo");
+    // Validar respuesta del servidor al handshake
+    n = read(socket_fd, buffer, sizeof(buffer)-1);
+    if (n < 0) raise_error("Error leyendo respuesta del servidor");
+    buffer[n] = '\0';
+
+    if (strstr(buffer, "HTTP/1.1 101") == NULL) {
+        raise_error("El servidor no aceptó el upgrade a WebSocket.");
     }
-    printf("Server: %s\n", buffer);
+    printf("Conexión establecida: %s\n", buffer);
+
 
     // Escritura
         // bzero(buffer, 255);
@@ -361,6 +424,9 @@ int main(int argc, char *argv[]){
                 printf("Opción inválida.\n");
         }
     } while (opcion != 0);
+    // Enviar código de cierre (opcional según protocolo real, no necesario si solo cierras TCP)
+    char close_frame[2] = {0x88, 0x00};  // Opcode 8 (close), payload length 0
+    websocket_send(socket_fd, close_frame, 2);
 
     close(socket_fd);
     return 0;
