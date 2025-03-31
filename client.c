@@ -73,7 +73,6 @@ int websocket_send(int socket_fd, const char *data, size_t data_len) {
     for (size_t i = 0; i < data_len; ++i) {
         frame[pos++] = data[i] ^ mask[i % 4];
     }
-
     return write(socket_fd, frame, pos);
 }
 int websocket_receive(int socket_fd, char *output, size_t max_len) {
@@ -173,8 +172,27 @@ void get_user_info(int socket_fd, const char *username) {
     websocket_send(socket_fd, buffer, 2 + len);
 }
 
+void flush_socket(int socket_fd) {
+    // Lee todo lo que esté en el buffer del socket sin bloquear
+    fd_set fds;
+    struct timeval timeout = {0, 10000}; // 10ms
+
+    FD_ZERO(&fds);
+    FD_SET(socket_fd, &fds);
+
+    char tmp[512];
+    while (select(socket_fd + 1, &fds, NULL, NULL, &timeout) > 0) {
+        int n = read(socket_fd, tmp, sizeof(tmp));
+        if (n <= 0) break;
+
+        FD_ZERO(&fds);
+        FD_SET(socket_fd, &fds);
+    }
+}
+
 // Procesar respuesta general del servidor
 void handle_server_response(int socket_fd) {
+    flush_socket(socket_fd);
     char buffer[1024];
     int n = websocket_receive(socket_fd, buffer, sizeof(buffer));
     if (n <= 0) raise_error("Error al recibir datos del servidor.");
