@@ -7,10 +7,18 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#define STR_LEN 50
+#define USER_LIMIT 5
 void raise_error(const char *msg){
     perror(msg);
+    fflush(stdout);
     exit(1);
 }
+
+typedef struct {
+    char uname[STR_LEN];
+    char uip[STR_LEN];
+} active_users;
 
 typedef struct {
     char username[50];
@@ -177,39 +185,69 @@ int main(int argc, char *argv[]){
     // Listening
     listen(scoket_fd, client_limit);
     clilen =  sizeof(cli_addr);
-    accepted_sockfd = accept(scoket_fd, (struct sockaddr *) &cli_addr, &clilen);
-    if (accepted_sockfd<0){
-        raise_error("Error aceptando");
-    }
-    getpeername(accepted_sockfd, (struct sockaddr *) &cli_addr, &clilen);
-    char client_ip[INET_ADDRSTRLEN]; // Buffer for IP address
-    inet_ntop(AF_INET, &cli_addr.sin_addr, client_ip, sizeof(client_ip));
-
     // Reading loop
     int n;
     char buffer[255];
+    int no_request;
+    no_request = 0;
+    active_users ausers[USER_LIMIT];
+    int ausers_n;
+    ausers_n = 0;
+    char response[512];
     while(1){
-        n = read(accepted_sockfd, buffer, 255);
+        // Socket reading
+        accepted_sockfd = accept(scoket_fd, (struct sockaddr *) &cli_addr, &clilen);
+        if (accepted_sockfd<0){
+            printf("Error Aceptando");
+            fflush(stdout);
+        }
+        getpeername(accepted_sockfd, (struct sockaddr *) &cli_addr, &clilen);
+        char client_ip[INET_ADDRSTRLEN]; // Buffer for IP address
+        inet_ntop(AF_INET, &cli_addr.sin_addr, client_ip, sizeof(client_ip));
+
+        // Parsing of request
+        bzero(buffer, 255);
+        n = recv(accepted_sockfd, buffer, 255,0);
         if (n<0){
-            raise_error("Error leyendo");
+            printf("Error leyendo");
+            fflush(stdout);
+            // raise_error("Error leyendo");
         }
-        printf("Request\n%s",buffer);
-        char *get_line;
-        get_line= strtok(buffer, "\r\n");
-        char method[10], path[100], http_version[10];
-        sscanf(get_line, "%s %s %s", method, path, http_version);
+        if (n==0){
+            printf("User disconnected %s\n",client_ip);
+            fflush(stdout);
+            close(accepted_sockfd);
+            no_request = 1;
+            
+        } 
+        if (n>0){
+            no_request = 0;
+            
+            char *get_line;
+            get_line= strtok(buffer, "\r\n");
+            char method[10], path[100], http_version[10];
+            sscanf(get_line, "%s %s %s", method, path, http_version);
 
-        char name_str[50];
-        char *name_start = strstr(path, "?");
-        if (name_start) {
-            sscanf(name_start, "?name=%49s", name_str);
+            char name_str[50];
+            char *name_start = strstr(path, "?");
+            if (name_start) {
+                sscanf(name_start, "?name=%49s", name_str);
+            }
+            
+            strcpy(ausers[ausers_n].uname, name_str);
+            strcpy(ausers[ausers_n].uip, client_ip);
+            ausers_n+=1;
+            // Despues de que se asigno correctamente el usuario
+            snprintf(response, sizeof(response),
+            "HTTP/1.1 101 Switching Protocols\r\n"
+            "Upgrade: websocket\r\n"
+            "Connection: Upgrade\r\n");
+            send(accepted_sockfd, response, strlen(response), 0);
+        } 
+        for(int i = 0; i<ausers_n; i++){
+            printf("U%d: %s %s\n",i, ausers[i].uname, ausers[i].uip);
+            fflush(stdout);
         }
-        printf("Name: %s IP: %s",name_str, client_ip);
-        fflush(stdout);
-
-
-
-
         // // Lee si puede
         // bzero(buffer, 255);
         // n = read(accepted_sockfd, buffer, 255);
