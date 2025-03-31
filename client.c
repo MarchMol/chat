@@ -6,8 +6,43 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#include <time.h>
 void receive_message(int socket_fd);
 void receive_history(int socket_fd);
+// Realizar la generación de Sec-WebSocket-Key
+const char base64_table[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+void base64_encode(const uint8_t *in, size_t in_len, char *out) {
+    int i, j;
+    for (i = 0, j = 0; i < in_len;) {
+        uint32_t octet_a = i < in_len ? in[i++] : 0;
+        uint32_t octet_b = i < in_len ? in[i++] : 0;
+        uint32_t octet_c = i < in_len ? in[i++] : 0;
+
+        uint32_t triple = (octet_a << 16) | (octet_b << 8) | octet_c;
+
+        out[j++] = base64_table[(triple >> 18) & 0x3F];
+        out[j++] = base64_table[(triple >> 12) & 0x3F];
+        out[j++] = base64_table[(triple >> 6) & 0x3F];
+        out[j++] = base64_table[triple & 0x3F];
+    }
+
+    int mod = in_len % 3;
+    if (mod > 0) out[j - 1] = '=';
+    if (mod == 1) out[j - 2] = '=';
+    out[j] = '\0';
+}
+// Función para generar 16 bytes aleatorios
+void generate_websocket_key(char *output) {
+    uint8_t random_key[16];
+    srand(time(NULL));
+    for (int i = 0; i < 16; ++i) {
+        random_key[i] = rand() % 256;
+    }
+    base64_encode(random_key, 16, output);
+}
+
 // función para hacer el framing WebSocket básico (sin fragmentación)
 int websocket_send(int socket_fd, const char *data, size_t data_len) {
     uint8_t frame[1024];
@@ -315,15 +350,17 @@ int main(int argc, char *argv[]){
     char buffer[255];
     char handshake[1024];
     int n;
-
+    // generar Sec-WebSocket-Key
+    char sec_key[32];
+    generate_websocket_key(sec_key);
     snprintf(handshake, sizeof(handshake),
         "GET /?name=%s HTTP/1.1\r\n"
         "Host: %s:%d\r\n"
         "Upgrade: websocket\r\n"
         "Connection: Upgrade\r\n"
         "Sec-WebSocket-Version: 13\r\n"
-        "Sec-WebSocket-Key: x3JJHMbDL1EzLkh9GBhXDw==\r\n"
-    "\r\n", name, argv[1], port_n);
+        "Sec-WebSocket-Key: %s\r\n"
+    "\r\n", name, argv[1], port_n, sec_key);
 
     n = write(socket_fd, handshake, strlen(handshake));
     if(n < 0){
