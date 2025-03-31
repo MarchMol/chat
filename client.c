@@ -11,6 +11,10 @@ void raise_error(const char *msg){
     perror(msg);
     exit(1);
 }
+// Validar nombre antes del handshake
+int is_valid_username(const char *name) {
+    return (strlen(name) > 0 && strcmp(name, "~") != 0);
+}
 
 // Función para enviar un mensaje para cambiar el estatus
 void change_status(int socket_fd, const char *username, int status) {
