@@ -6,6 +6,9 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
+void receive_message(int socket_fd);
+void receive_history(int socket_fd);
+
 
 void raise_error(const char *msg){
     perror(msg);
