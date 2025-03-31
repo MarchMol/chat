@@ -16,6 +16,22 @@ int is_valid_username(const char *name) {
     return (strlen(name) > 0 && strcmp(name, "~") != 0);
 }
 
+// Enviar solicitud de listado de usuarios (tipo 1)
+void list_users(int socket_fd) {
+    char buffer[1] = {1};  // Tipo de mensaje 1
+    write(socket_fd, buffer, 1);
+}
+
+// Obtener info de un usuario específico (tipo 2)
+void get_user_info(int socket_fd, const char *username) {
+    int len = strlen(username);
+    char buffer[256];
+    buffer[0] = 2;           // Tipo de mensaje
+    buffer[1] = len;         // Longitud del nombre
+    memcpy(buffer + 2, username, len);
+    write(socket_fd, buffer, 2 + len);
+}
+
 // Función para enviar un mensaje para cambiar el estatus
 void change_status(int socket_fd, const char *username, int status) {
     char message[256];
