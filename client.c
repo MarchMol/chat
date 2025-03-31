@@ -78,20 +78,30 @@ int websocket_send(int socket_fd, const char *data, size_t data_len) {
 }
 int websocket_receive(int socket_fd, char *output, size_t max_len) {
     uint8_t header[2];
-    if (read(socket_fd, header, 2) != 2) return -1;
+    int r = 0;
+
+    // Leer los 2 bytes del encabezado
+    while (r < 2) {
+        int n = read(socket_fd, header + r, 2 - r);
+        if (n <= 0) return -1;
+        r += n;
+    }
 
     int fin = (header[0] >> 7) & 1;
     int opcode = header[0] & 0x0F;
-    if (opcode == 0x8) {
-        printf("Conexión cerrada por el servidor.\n");
-        return 0;
-    } else if (opcode != 0x1 && opcode != 0x2 ) {
-        printf("Opcode desconocido: %d\n", opcode);
-        return -1;
-    }
     int masked = (header[1] >> 7) & 1;
     int payload_len = header[1] & 0x7F;
 
+    if (opcode == 0x8) {
+        printf("Conexión cerrada por el servidor.\n");
+        return 0;
+    }
+    if (opcode != 0x1 && opcode != 0x2) {
+        printf("Opcode desconocido: %d\n", opcode);
+        return -1;
+    }
+
+    // Leer longitud extendida si aplica
     if (payload_len == 126) {
         uint8_t ext[2];
         if (read(socket_fd, ext, 2) != 2) return -1;
@@ -107,21 +117,39 @@ int websocket_receive(int socket_fd, char *output, size_t max_len) {
 
     if (payload_len >= max_len) return -1;
 
+    // Leer máscara si está presente
     uint8_t mask[4] = {0};
     if (masked) {
         if (read(socket_fd, mask, 4) != 4) return -1;
     }
 
-    for (int i = 0; i < payload_len; i++) {
-        uint8_t byte;
-        if (read(socket_fd, &byte, 1) != 1) return -1;
-        output[i] = masked ? (byte ^ mask[i % 4]) : byte;
+    // Leer payload completo
+    uint8_t *payload = malloc(payload_len);
+    if (!payload) return -1;
+
+    size_t received = 0;
+    while (received < payload_len) {
+        int n = read(socket_fd, payload + received, payload_len - received);
+        if (n <= 0) {
+            free(payload);
+            return -1;
+        }
+        received += n;
     }
 
-    output[payload_len] = '\0';  // Asegurar fin de cadena si es texto
+    // Aplicar máscara si es necesario
+    for (int i = 0; i < payload_len; i++) {
+        output[i] = masked ? (payload[i] ^ mask[i % 4]) : payload[i];
+    }
+
+    // Agregar '\0' solo si es texto
+    if (opcode == 0x1) {
+        output[payload_len] = '\0';
+    }
+
+    free(payload);
     return payload_len;
 }
-
 
 void raise_error(const char *msg){
     perror(msg);
@@ -129,8 +157,10 @@ void raise_error(const char *msg){
 }
 // Enviar solicitud de listado de usuarios (tipo 1)
 void list_users(int socket_fd) {
-    char buffer[1] = {1};  // Tipo de mensaje 1
-    websocket_send(socket_fd, buffer, 1);
+    char buffer[2];
+    buffer[0] = 1;  // Tipo de mensaje 1
+    buffer[1] = 0;  // Longitud del campo = 0 (sin argumentos)
+    websocket_send(socket_fd, buffer, 2);
 }
 
 // Obtener info de un usuario específico (tipo 2)
