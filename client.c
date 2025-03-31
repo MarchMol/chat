@@ -32,6 +32,71 @@ void get_user_info(int socket_fd, const char *username) {
     write(socket_fd, buffer, 2 + len);
 }
 
+// Procesar respuesta general del servidor
+void handle_server_response(int socket_fd) {
+    char buffer[1024];
+    int n = read(socket_fd, buffer, sizeof(buffer));
+    if (n < 0) {
+        raise_error("Error leyendo respuesta del servidor");
+    }
+
+    int tipo = buffer[0];
+    switch (tipo) {
+        case 50: {  // Error
+            int code = buffer[1];
+            printf("Error del servidor (%d): ", code);
+            switch (code) {
+                case 1: printf("Usuario no existe.\n"); break;
+                case 2: printf("Estatus inválido.\n"); break;
+                case 3: printf("Mensaje vacío.\n"); break;
+                case 4: printf("Usuario desconectado.\n"); break;
+                default: printf("Desconocido.\n");
+            }
+            break;
+        }
+        case 51: {  // Lista de usuarios
+            int count = buffer[1];
+            int offset = 2;
+            printf("Usuarios conectados (%d):\n", count);
+            for (int i = 0; i < count; i++) {
+                int len = buffer[offset++];
+                char username[256];
+                memcpy(username, buffer + offset, len);
+                username[len] = '\0';
+                offset += len;
+                int status = buffer[offset++];
+                const char *status_str = (status == 1) ? "ACTIVO" :
+                                         (status == 2) ? "OCUPADO" :
+                                         (status == 3) ? "INACTIVO" : "DESCONECTADO";
+                printf("  - %s [%s]\n", username, status_str);
+            }
+            break;
+        }
+        case 52: {  // Info de usuario
+            int len = buffer[1];
+            char username[256];
+            memcpy(username, buffer + 2, len);
+            username[len] = '\0';
+            int status = buffer[2 + len];
+            const char *status_str = (status == 1) ? "ACTIVO" :
+                                     (status == 2) ? "OCUPADO" :
+                                     (status == 3) ? "INACTIVO" : "DESCONECTADO";
+            printf("Información del usuario:\n");
+            printf("  - Nombre: %s\n", username);
+            printf("  - Estado: %s\n", status_str);
+            break;
+        }
+        case 55:
+            receive_message(socket_fd);
+            break;
+        case 56:
+            receive_history(socket_fd);
+            break;
+        default:
+            printf("Respuesta desconocida del servidor (%d)\n", tipo);
+    }
+}
+
 // Función para enviar un mensaje para cambiar el estatus
 void change_status(int socket_fd, const char *username, int status) {
     char message[256];
