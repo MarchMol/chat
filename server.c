@@ -109,10 +109,27 @@ void send_websocket_message(int client_fd, const char *message) {
     send(client_fd, frame, sizeof(frame), 0);
 }
 
+const char *get_username_by_socket(int socket_fd) {
+    pthread_mutex_lock(&clients_mutex);
+
+    for (int i = 0; i < num_clients; i++) {
+        if (clients[i]->socket_fd == socket_fd) {
+            pthread_mutex_unlock(&clients_mutex);
+            return clients[i]->username;
+        }
+    }
+
+    pthread_mutex_unlock(&clients_mutex);
+    return "Desconocido";  // Si no se encuentra el usuario
+}
 
 void handle_get_history(int client_fd, const char *chat_name) {
     printf("Solicitando historial para: %s\n", chat_name);
     printf("hay: %d chats\n", chat_count);
+
+    const char *requesting_user = get_username_by_socket(client_fd);
+    printf("Solicitud de historial hecha por: %s\n", requesting_user);
+
     pthread_mutex_lock(&chat_mutex);
 
     for (int i = 0; i < chat_count; i++) {
@@ -141,7 +158,6 @@ void handle_get_history(int client_fd, const char *chat_name) {
     // Si no hay historial
     send_websocket_message(client_fd, "No se encontró historial para este chat.");
 }
-
 
 // Función para enviar un mensaje de estatus actualizado a todos los clientes
 void broadcast_status_change(int *client_sockets, int num_clients, const char *username, int status) {
@@ -421,6 +437,18 @@ void decode_websocket_message(uint8_t *buffer, int length, char *decoded_message
     }
     printf("\n");
 }
+void print_clients() {
+    pthread_mutex_lock(&clients_mutex);
+    
+    printf("\nLista de clientes conectados (%d):\n", num_clients);
+    for (int i = 0; i < num_clients; i++) {
+        printf("Cliente %d -> Username: %s, Socket: %d\n", 
+               i + 1, clients[i]->username, clients[i]->socket_fd);
+    }
+
+    pthread_mutex_unlock(&clients_mutex);
+}
+
 
 void *handle_client(void *arg) {
     int accepted_sockfd = *(int *)arg;
@@ -434,6 +462,10 @@ void *handle_client(void *arg) {
     getpeername(accepted_sockfd, (struct sockaddr *)&cli_addr, &clilen);
     char client_ip[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &cli_addr.sin_addr, client_ip, sizeof(client_ip));
+
+    // Buscar el username asociado al socket
+    const char *client_username = get_username_by_socket(accepted_sockfd);
+    printf("Cliente conectado: %s (%s)\n", client_username, client_ip);
 
     while (1) {
         total_received = 0;  // Reiniciar el contador para un nuevo mensaje
@@ -488,8 +520,8 @@ void *handle_client(void *arg) {
             }
 
             // Broadcast del cambio de estatus
-            broadcast_status_change(client_sockets, num_clients, username, status);
-            printf("Cambio de estatus: %s ahora está en estatus %d\n", username, status);
+            broadcast_status_change(client_sockets, num_clients, client_username, status);
+            printf("Cambio de estatus: %s ahora está en estatus %d\n", client_username, status);
         } else if (decoded_message[0] == 4) {  // Envío de mensaje
             printf("envio de mensaje detectado\n");
             int username_len = decoded_message[1];
@@ -501,18 +533,18 @@ void *handle_client(void *arg) {
             char message[256];
             memcpy(message, decoded_message + 3 + username_len, message_len);
             message[message_len] = '\0';
-            printf("Mensaje de: '%s' para '%s': %s\n", client_ip, recipient, message);
+            printf("Mensaje de: '%s' para '%s': %s\n", client_username, recipient, message);
             if (strcmp(recipient, "~") == 0) {
                 send_message_to_all(accepted_sockfd, recipient, message);
-                add_message_to_history(recipient, client_ip, message);
+                add_message_to_history(recipient, client_username, message);
             } else {
                 int recipient_fd = find_user_socket(recipient);
                 if (recipient_fd == -1) {
                     char error_msg[] = "El usuario no existe.";
                     write(accepted_sockfd, error_msg, sizeof(error_msg));
                 } else {
-                    send_message_to_client(recipient_fd, recipient, message);
-                    add_message_to_history(recipient, recipient, message);
+                    send_message_to_client(recipient_fd, client_username, message);
+                    add_message_to_history(recipient, client_username, message);
                 }
             }
         } else if (decoded_message[0] == 5) {  // Solicitud de historial
@@ -589,6 +621,36 @@ int main(int argc, char *argv[]) {
         if (name_start) {
             sscanf(name_start, "?name=%49s", name_str);
         }
+
+        // Guardar usuario en la lista de clientes
+        pthread_mutex_lock(&clients_mutex);
+
+        if (num_clients < USER_LIMIT) {
+            clients[num_clients] = malloc(sizeof(Client));
+            if (!clients[num_clients]) {
+                perror("Error asignando memoria");
+                pthread_mutex_unlock(&clients_mutex);
+                close(*accepted_sockfd);
+                free(accepted_sockfd);
+                continue;
+            }
+
+            clients[num_clients]->socket_fd = *accepted_sockfd;
+            strcpy(clients[num_clients]->username, name_str);
+            num_clients++;
+
+            printf("Cliente agregado: %s con socket %d\n", name_str, *accepted_sockfd);
+            
+        } else {
+            printf("Límite de clientes alcanzado\n");
+            pthread_mutex_unlock(&clients_mutex);
+            close(*accepted_sockfd);
+            free(accepted_sockfd);
+            continue;
+        }
+        
+        pthread_mutex_unlock(&clients_mutex);
+        print_clients();
 
         // Guardar usuario en la lista con mutex
         pthread_mutex_lock(&ausers_mutex);
