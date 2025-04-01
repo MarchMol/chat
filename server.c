@@ -9,6 +9,12 @@
 
 #define MAX_CLIENTS 10  // Ajusta según lo necesites
 int client_sockets[MAX_CLIENTS];  // Almacena los sockets de los clientes
+typedef struct {
+    int socket_fd;
+    char username[50];
+} Client;
+
+Client *clients[MAX_CLIENTS] = {NULL};
 int num_clients = 0;  // Contador de clientes conectados
 #define STR_LEN 50
 #define USER_LIMIT 5
@@ -37,6 +43,16 @@ typedef struct {
 
 ChatHistory chat_histories[10];  // Soportamos hasta 10 chats diferentes
 int chat_count = 0;
+
+int find_user_socket(const char *username) {
+    for (int i = 0; i < num_clients; i++) {
+        // Si tienes una estructura con nombre, agrégala aquí
+        if (strcmp(clients[i]->username, username) == 0) {
+            return clients[i]->socket_fd;
+        }
+    }
+    return -1;  // No encontrado
+}
 
 void add_message_to_history(const char *chat_name, const char *username, const char *message) {
     for (int i = 0; i < chat_count; i++) {
