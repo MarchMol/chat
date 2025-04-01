@@ -7,6 +7,7 @@
 #include <netinet/in.h>
 #include <netdb.h>
 #include <time.h>
+#include <sys/select.h>
 void receive_message(int socket_fd);
 void receive_history(int socket_fd);
 // Realizar la generación de Sec-WebSocket-Key

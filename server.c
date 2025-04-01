@@ -7,6 +7,9 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#define MAX_CLIENTS 10  // Ajusta según lo necesites
+int client_sockets[MAX_CLIENTS];  // Almacena los sockets de los clientes
+int num_clients = 0;  // Contador de clientes conectados
 #define STR_LEN 50
 #define USER_LIMIT 5
 void raise_error(const char *msg){
@@ -130,11 +133,11 @@ void send_message_to_all(int sender_fd, const char *sender, const char *message)
     memcpy(buffer + 3 + sender_len, message, message_len);  // Contenido del mensaje
 
     // Enviar el mensaje a todos los clientes conectados
-    for (int i = 0; i < MAX_CLIENTS; i++) {
-        if (clients[i] != NULL && clients[i]->socket_fd != sender_fd) {
-            write(clients[i]->socket_fd, buffer, 3 + sender_len + message_len);
+    for (int i = 0; i < num_clients; i++) {
+        if (client_sockets[i] != sender_fd) {
+            write(client_sockets[i], buffer, 3 + sender_len + message_len);
         }
-    }
+    }    
 }
 
 // Función para enviar un mensaje a un cliente específico
@@ -299,17 +302,17 @@ int main(int argc, char *argv[]){
             message[message_len] = '\0';
 
             if (strcmp(recipient, "~") == 0) {  // Enviar mensaje al chat general
-                send_message_to_all(client->socket_fd, client->username, message);
+                send_message_to_all(accepted_sockfd, recipient, message);
 
-                add_message_to_history("general", sender, message);
+                add_message_to_history("general", recipient, message);
             } else {  // Enviar mensaje a un usuario específico
                 int recipient_fd = find_user_socket(recipient);
                 if (recipient_fd == -1) {
                     // El usuario no está conectado, responder con un error
                     char error_msg[] = "El usuario no existe.";
-                    write(client->socket_fd, error_msg, sizeof(error_msg));
+                    write(accepted_sockfd, error_msg, sizeof(error_msg));
                 } else {
-                    send_message_to_client(recipient_fd, client->username, message);
+                    send_message_to_client(recipient_fd, recipient, message);
 
                     add_message_to_history(recipient, recipient, message);
                 }
