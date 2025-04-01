@@ -259,6 +259,21 @@ void handle_server_response(int socket_fd) {
             printf("  - Estado: %s\n", status_str);
             break;
         }
+	case 54: {
+            int len = buffer[1];
+            char username[256];
+            memcpy(username, buffer + 2, len);
+            username[len] = '\0';
+            int status = buffer[2 + len];
+
+            const char *status_str = (status == 1) ? "ACTIVO" :
+                             (status == 2) ? "OCUPADO" :
+                             (status == 3) ? "INACTIVO" : "DESCONECTADO";
+
+            printf("Estado actualizado: %s ahora está en estado %s\n", username, status_str);
+            break;
+            }
+
         case 55:
             receive_message(socket_fd);
             break;

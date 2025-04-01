@@ -27,6 +27,7 @@ int client_sockets[MAX_CLIENTS];  // Almacena los sockets de los clientes
 typedef struct {
     int socket_fd;
     char username[50];
+    int status;
 } Client;
 
 Client *clients[MAX_CLIENTS] = {NULL};
@@ -187,9 +188,7 @@ void handle_list_users(int socket_fd) {
         response[offset++] = name_len;
         memcpy(response + offset, clients[i]->username, name_len);
         offset += name_len;
-
-        // Por ahora todos los usuarios están en estatus 1
-        response[offset++] = 1;
+        response[offset++] = clients[i]->status;  // Estado real del cliente
     }
 
     pthread_mutex_unlock(&clients_mutex);
@@ -206,10 +205,9 @@ void handle_user_info(int socket_fd, const char *username) {
             response[0] = 52;
             response[1] = name_len;
             memcpy(response + 2, username, name_len);
-            response[2 + name_len] = 1;  // Por ahora todos activos
-
+            response[2 + name_len] = clients[i]->status;  // Estatus actual
             pthread_mutex_unlock(&clients_mutex);
-            send(socket_fd, response, 3 + name_len, 0);
+            send_websocket_binary(socket_fd, (uint8_t *)response, 3 + name_len);
             return;
         }
     }
@@ -282,10 +280,7 @@ void broadcast_status_change(int *client_sockets, int num_clients, const char *u
 
     // Enviar mensaje a todos los clientes
     for (int i = 0; i < num_clients; i++) {
-        int n = write(client_sockets[i], message, 2 + username_len + 1);
-        if (n < 0) {
-            perror("Error enviando mensaje a los clientes");
-        }
+        send_websocket_binary(client_sockets[i], (uint8_t *)message, 2 + username_len + 1);
     }
 }
 
@@ -622,7 +617,14 @@ void *handle_client(void *arg) {
             memcpy(username, decoded_message + 2, username_len);
             username[username_len] = '\0';
             int status = decoded_message[2 + username_len];
-
+	    pthread_mutex_lock(&clients_mutex);
+            for (int i = 0; i < num_clients; i++) {
+                if (strcmp(clients[i]->username, username) == 0) {
+                    clients[i]->status = status;
+                    break;
+                }
+            }
+            pthread_mutex_unlock(&clients_mutex);
             // Validar el estatus
             if (status < 0 || status > 3) {
                 printf("Estatus inválido recibido: %d\n", status);
@@ -746,6 +748,9 @@ int main(int argc, char *argv[]) {
 
         if (num_clients < USER_LIMIT) {
             clients[num_clients] = malloc(sizeof(Client));
+	    clients[num_clients]->socket_fd = *accepted_sockfd;
+            strcpy(clients[num_clients]->username, name_str);
+            clients[num_clients]->status = 1; // NUEVO: por defecto ACTIVO
             if (!clients[num_clients]) {
                 perror("Error asignando memoria");
                 pthread_mutex_unlock(&clients_mutex);
