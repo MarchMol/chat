@@ -203,7 +203,7 @@ void flush_socket(int socket_fd) {
 
 // Procesar respuesta general del servidor
 void handle_server_response(int socket_fd) {
-    flush_socket(socket_fd);
+    //flush_socket(socket_fd);
     char buffer[1024];
     int n = websocket_receive(socket_fd, buffer, sizeof(buffer));
     if (n == -2) {

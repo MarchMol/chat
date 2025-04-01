@@ -137,6 +137,29 @@ void send_websocket_message(int client_fd, const char *message) {
     send(client_fd, frame, sizeof(frame), 0);
 }
 
+void send_websocket_binary(int client_fd, const uint8_t *data, size_t length) {
+    uint8_t frame[1024];
+    size_t pos = 0;
+
+    frame[pos++] = 0x82; // FIN=1, tipo=Binario (0x2)
+
+    if (length <= 125) {
+        frame[pos++] = length;
+    } else if (length <= 65535) {
+        frame[pos++] = 126;
+        frame[pos++] = (length >> 8) & 0xFF;
+        frame[pos++] = length & 0xFF;
+    } else {
+        // Límite superado, manejar si necesario
+        return;
+    }
+
+    memcpy(frame + pos, data, length);
+    pos += length;
+
+    send(client_fd, frame, pos, 0);
+}
+
 const char *get_username_by_socket(int socket_fd) {
     pthread_mutex_lock(&clients_mutex);
 
@@ -149,6 +172,54 @@ const char *get_username_by_socket(int socket_fd) {
 
     pthread_mutex_unlock(&clients_mutex);
     return "Desconocido";  // Si no se encuentra el usuario
+}
+
+void handle_list_users(int socket_fd) {
+    pthread_mutex_lock(&clients_mutex);
+
+    char response[1024];
+    int offset = 0;
+    response[offset++] = 51;            // Tipo de mensaje
+    response[offset++] = num_clients;   // Cantidad de usuarios
+
+    for (int i = 0; i < num_clients; i++) {
+        int name_len = strlen(clients[i]->username);
+        response[offset++] = name_len;
+        memcpy(response + offset, clients[i]->username, name_len);
+        offset += name_len;
+
+        // Por ahora todos los usuarios están en estatus 1
+        response[offset++] = 1;
+    }
+
+    pthread_mutex_unlock(&clients_mutex);
+
+    send_websocket_binary(socket_fd, (uint8_t *)response, offset);
+}
+
+void handle_user_info(int socket_fd, const char *username) {
+    pthread_mutex_lock(&clients_mutex);
+    for (int i = 0; i < num_clients; i++) {
+        if (strcmp(clients[i]->username, username) == 0) {
+            char response[256];
+            int name_len = strlen(username);
+            response[0] = 52;
+            response[1] = name_len;
+            memcpy(response + 2, username, name_len);
+            response[2 + name_len] = 1;  // Por ahora todos activos
+
+            pthread_mutex_unlock(&clients_mutex);
+            send(socket_fd, response, 3 + name_len, 0);
+            return;
+        }
+    }
+    pthread_mutex_unlock(&clients_mutex);
+
+    // Si no se encontró
+    char err[3];
+    err[0] = 50;  // Error
+    err[1] = 1;   // Código: usuario no existe
+    send_websocket_binary(socket_fd, (uint8_t *)err, 2);
 }
 
 void handle_get_history(int client_fd, const char *chat_partner) {
@@ -592,7 +663,16 @@ void *handle_client(void *arg) {
             memcpy(username, decoded_message + 2, username_len);
             username[username_len] = '\0';
             handle_get_history(accepted_sockfd, username);
-        }
+        } else if (decoded_message[0] == 1) {  // Tipo 1: listar usuarios
+            handle_list_users(accepted_sockfd);
+        } else if (decoded_message[0] == 2) {  // Tipo 2: info usuario
+          int len = decoded_message[1];
+          char username[50];
+          memcpy(username, decoded_message + 2, len);
+          username[len] = '\0';
+          handle_user_info(accepted_sockfd, username);
+}
+
     }
 
     close(accepted_sockfd);
