@@ -6,6 +6,21 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <pthread.h>
+#include <bits/pthreadtypes.h>
+
+#define USER_LIMIT 5
+#define STR_LEN 50
+pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t chat_mutex = PTHREAD_MUTEX_INITIALIZER;
+typedef struct {
+    char uname[STR_LEN];
+    char uip[STR_LEN];
+} active_users;
+
+active_users ausers[USER_LIMIT];
+int ausers_n = 0;
+pthread_mutex_t ausers_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 #define MAX_CLIENTS 10  // Ajusta según lo necesites
 int client_sockets[MAX_CLIENTS];  // Almacena los sockets de los clientes
@@ -17,17 +32,11 @@ typedef struct {
 Client *clients[MAX_CLIENTS] = {NULL};
 int num_clients = 0;  // Contador de clientes conectados
 #define STR_LEN 50
-#define USER_LIMIT 5
 void raise_error(const char *msg){
     perror(msg);
     fflush(stdout);
     exit(1);
 }
-
-typedef struct {
-    char uname[STR_LEN];
-    char uip[STR_LEN];
-} active_users;
 
 typedef struct {
     char username[50];
@@ -45,36 +54,34 @@ ChatHistory chat_histories[10];  // Soportamos hasta 10 chats diferentes
 int chat_count = 0;
 
 int find_user_socket(const char *username) {
+    pthread_mutex_lock(&clients_mutex);
     for (int i = 0; i < num_clients; i++) {
-        // Si tienes una estructura con nombre, agrégala aquí
         if (strcmp(clients[i]->username, username) == 0) {
-            return clients[i]->socket_fd;
+            int socket_fd = clients[i]->socket_fd;
+            pthread_mutex_unlock(&clients_mutex);
+            return socket_fd;
         }
     }
-    return -1;  // No encontrado
+    pthread_mutex_unlock(&clients_mutex);
+    return -1;
 }
 
 void add_message_to_history(const char *chat_name, const char *username, const char *message) {
+    pthread_mutex_lock(&chat_mutex);
     for (int i = 0; i < chat_count; i++) {
         if (strcmp(chat_histories[i].chat_name, chat_name) == 0) {
-            // Encontramos el chat correspondiente
             if (chat_histories[i].message_count < 100) {
-                // Añadir el mensaje al historial
                 strcpy(chat_histories[i].messages[chat_histories[i].message_count].username, username);
                 strcpy(chat_histories[i].messages[chat_histories[i].message_count].message, message);
                 chat_histories[i].message_count++;
             }
+            pthread_mutex_unlock(&chat_mutex);
             return;
         }
     }
-
-    // Si no encontramos el chat, lo creamos
-    strcpy(chat_histories[chat_count].chat_name, chat_name);
-    strcpy(chat_histories[chat_count].messages[0].username, username);
-    strcpy(chat_histories[chat_count].messages[0].message, message);
-    chat_histories[chat_count].message_count = 1;
-    chat_count++;
+    pthread_mutex_unlock(&chat_mutex);
 }
+
 
 void handle_get_history(int client_fd, const char *chat_name) {
     for (int i = 0; i < chat_count; i++) {
@@ -170,13 +177,14 @@ void send_message_to_client(int recipient_fd, const char *sender, const char *me
 
     write(recipient_fd, buffer, 3 + sender_len + message_len);
 }
-
+/*
 int main(int argc, char *argv[]){
     // Argument Check
     if (argc<2){
         perror("Puerto de ejecucion faltante");
         exit(1);
     }
+    
     int port_n, scoket_fd, accepted_sockfd, client_limit;
     client_limit = 5;
     struct sockaddr_in serv_addr, cli_addr;
@@ -223,10 +231,16 @@ int main(int argc, char *argv[]){
         getpeername(accepted_sockfd, (struct sockaddr *) &cli_addr, &clilen);
         char client_ip[INET_ADDRSTRLEN]; // Buffer for IP address
         inet_ntop(AF_INET, &cli_addr.sin_addr, client_ip, sizeof(client_ip));
-
+        while(1){
         // Parsing of request
         bzero(buffer, 255);
         n = recv(accepted_sockfd, buffer, 255,0);
+        printf("Buffer recibido: ");
+        for (int i = 0; i < n; i++) {
+            printf("%02X ", (unsigned char)buffer[i]);  // Muestra los bytes en formato hexadecimal
+        }
+        printf("\n");
+        fflush(stdout);
         if (n<0){
             printf("Error leyendo");
             fflush(stdout);
@@ -289,6 +303,7 @@ int main(int argc, char *argv[]){
 
         // Procesar el mensaje de cambio de estatus
         if (buffer[0] == 3) {  // Si el tipo de mensaje es 3 (cambio de estatus)
+            printf("estoy en estado");
             int username_len = buffer[1];
             char username[50];
             memcpy(username, buffer + 2, username_len);
@@ -343,9 +358,247 @@ int main(int argc, char *argv[]){
             // Llamamos a la función para obtener el historial del chat solicitado
             handle_get_history(accepted_sockfd, username);
         }
-    
+        }
     }
     close(accepted_sockfd);
     close(scoket_fd);
+    return 0;
+}*/
+
+void decode_websocket_message(uint8_t *buffer, int length, char *decoded_message) {
+    if (length < 2) {
+        printf("Mensaje WebSocket demasiado corto\n");
+        return;
+    }
+
+    int payload_length = buffer[1] & 0x7F; // Obtener la longitud real
+    int mask_offset = 2;
+
+    if (payload_length == 126) {
+        payload_length = (buffer[2] << 8) | buffer[3];
+        mask_offset = 4;
+    } else if (payload_length == 127) {
+        printf("Payload demasiado grande\n");
+        return;
+    }
+
+    uint8_t mask[4];
+    memcpy(mask, buffer + mask_offset, 4); // Extraer la máscara
+    int data_offset = mask_offset + 4;
+
+    printf("Máscara: %02X %02X %02X %02X\n", mask[0], mask[1], mask[2], mask[3]);
+
+    // Aplicar XOR con la máscara
+    for (int i = 0; i < payload_length; i++) {
+        decoded_message[i] = buffer[data_offset + i] ^ mask[i % 4];
+    }
+    decoded_message[payload_length] = '\0'; // Terminar string correctamente
+
+    // Mostrar mensaje decodificado en hexadecimal
+    printf("Mensaje decodificado en hexadecimal: ");
+    for (int i = 0; i < payload_length; i++) {
+        printf("%02X ", (unsigned char)decoded_message[i]);
+    }
+    printf("\n");
+}
+
+void *handle_client(void *arg) {
+    int accepted_sockfd = *(int *)arg;
+    free(arg);
+
+    uint8_t buffer[4096];  // Buffer más grande para manejar fragmentación
+    char decoded_message[4096];
+    int n, total_received = 0;
+    struct sockaddr_in cli_addr;
+    socklen_t clilen = sizeof(cli_addr);
+    getpeername(accepted_sockfd, (struct sockaddr *)&cli_addr, &clilen);
+    char client_ip[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &cli_addr.sin_addr, client_ip, sizeof(client_ip));
+
+    while (1) {
+        total_received = 0;  // Reiniciar el contador para un nuevo mensaje
+        bzero(buffer, sizeof(buffer));
+
+        while (1) {  // Bucle para recibir todo el mensaje WebSocket
+            n = recv(accepted_sockfd, buffer + total_received, sizeof(buffer) - total_received, 0);
+
+            if (n < 0) {
+                printf("Error leyendo\n");
+                fflush(stdout);
+                break;
+            }
+            if (n == 0) {
+                printf("User disconnected %s\n", client_ip);
+                fflush(stdout);
+                close(accepted_sockfd);
+                return NULL;
+            }
+
+            total_received += n;
+
+            // Verificar si el mensaje completo llegó (Bit FIN)
+            int fin_bit = buffer[0] & 0x80;  
+            if (fin_bit) break;
+        }
+
+        printf("Buffer recibido en hexadecimal: ");
+        for (int i = 0; i < total_received; i++) {
+            printf("%02X ", (unsigned char)buffer[i]);
+        }
+        printf("\n");
+
+        // Decodificar el mensaje WebSocket
+        decode_websocket_message(buffer, total_received, decoded_message);
+
+        printf("Mensaje decodificado: %s\n", decoded_message);
+
+        // Manejo del mensaje
+        if (decoded_message[0] == 3) {  // Cambio de estado
+            printf("Cambio de estado detectado\n");
+            int username_len = decoded_message[1];
+            char username[50];
+            memcpy(username, decoded_message + 2, username_len);
+            username[username_len] = '\0';
+            int status = decoded_message[2 + username_len];
+
+            // Validar el estatus
+            if (status < 0 || status > 3) {
+                printf("Estatus inválido recibido: %d\n", status);
+                continue;
+            }
+
+            // Broadcast del cambio de estatus
+            broadcast_status_change(client_sockets, num_clients, username, status);
+            printf("Cambio de estatus: %s ahora está en estatus %d\n", username, status);
+        } else if (decoded_message[0] == 4) {  // Envío de mensaje
+            printf("envio de mensaje detectado\n");
+            int username_len = decoded_message[1];
+            char recipient[50];
+            memcpy(recipient, decoded_message + 2, username_len);
+            recipient[username_len] = '\0';
+
+            int message_len = decoded_message[2 + username_len];
+            char message[256];
+            memcpy(message, decoded_message + 3 + username_len, message_len);
+            message[message_len] = '\0';
+            printf("Mensaje de: '%s' para '%s': %s\n", client_ip, recipient, message);
+            if (strcmp(recipient, "~") == 0) {
+                send_message_to_all(accepted_sockfd, recipient, message);
+                add_message_to_history("general", recipient, message);
+            } else {
+                int recipient_fd = find_user_socket(recipient);
+                if (recipient_fd == -1) {
+                    char error_msg[] = "El usuario no existe.";
+                    write(accepted_sockfd, error_msg, sizeof(error_msg));
+                } else {
+                    send_message_to_client(recipient_fd, recipient, message);
+                    add_message_to_history(recipient, recipient, message);
+                }
+            }
+        } else if (decoded_message[0] == 5) {  // Solicitud de historial
+            int username_len = decoded_message[1];
+            char username[50];
+            memcpy(username, decoded_message + 2, username_len);
+            username[username_len] = '\0';
+            handle_get_history(accepted_sockfd, username);
+        }
+    }
+
+    close(accepted_sockfd);
+    return NULL;
+}
+
+int main(int argc, char *argv[]) {
+    if (argc < 2) {
+        perror("Puerto de ejecución faltante");
+        exit(1);
+    }
+
+    int port_n, socket_fd;
+    struct sockaddr_in serv_addr, cli_addr;
+    socklen_t clilen;
+    port_n = atoi(argv[1]);
+
+    socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (socket_fd < 0) {
+        perror("Error creando socket");
+        exit(1);
+    }
+
+    bzero((char *)&serv_addr, sizeof(serv_addr));
+    serv_addr.sin_family = AF_INET;
+    serv_addr.sin_addr.s_addr = INADDR_ANY;
+    serv_addr.sin_port = htons(port_n);
+
+    if (bind(socket_fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+        raise_error("binding failed");
+    }
+
+    listen(socket_fd, USER_LIMIT);
+    clilen = sizeof(cli_addr);
+
+    while (1) {
+        int *accepted_sockfd = malloc(sizeof(int));
+        if (!accepted_sockfd) {
+            perror("Error asignando memoria");
+            continue;
+        }
+
+        *accepted_sockfd = accept(socket_fd, (struct sockaddr *)&cli_addr, &clilen);
+        if (*accepted_sockfd < 0) {
+            perror("Error aceptando conexión");
+            free(accepted_sockfd);
+            continue;
+        }
+
+        // Obtener IP del cliente
+        char client_ip[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &cli_addr.sin_addr, client_ip, sizeof(client_ip));
+
+        // Leer solicitud inicial
+        char buffer[255];
+        int n = recv(*accepted_sockfd, buffer, 255, 0);
+        if (n <= 0) {
+            close(*accepted_sockfd);
+            free(accepted_sockfd);
+            continue;
+        }
+
+        char name_str[50] = {0};
+        char *name_start = strstr(buffer, "?");
+        if (name_start) {
+            sscanf(name_start, "?name=%49s", name_str);
+        }
+
+        // Guardar usuario en la lista con mutex
+        pthread_mutex_lock(&ausers_mutex);
+        if (ausers_n < USER_LIMIT) {
+            strcpy(ausers[ausers_n].uname, name_str);
+            strcpy(ausers[ausers_n].uip, client_ip);
+            ausers_n++;
+        }
+        pthread_mutex_unlock(&ausers_mutex);
+
+        // Responder handshake
+        char response[] =
+            "HTTP/1.1 101 Switching Protocols\r\n"
+            "Upgrade: websocket\r\n"
+            "Connection: Upgrade\r\n";
+        send(*accepted_sockfd, response, strlen(response), 0);
+
+        for (int i = 0; i < ausers_n; i++) {
+            printf("U%d: %s %s\n", i, ausers[i].uname, ausers[i].uip);
+            fflush(stdout);
+        }
+
+        pthread_t client_thread;
+        if (pthread_create(&client_thread, NULL, handle_client, accepted_sockfd) != 0) {
+            perror("Error creando hilo");
+            free(accepted_sockfd);
+        }
+        pthread_detach(client_thread);
+    }
+
+    close(socket_fd);
     return 0;
 }
