@@ -91,7 +91,17 @@ int websocket_receive(int socket_fd, char *output, size_t max_len) {
     int opcode = header[0] & 0x0F;
     int masked = (header[1] >> 7) & 1;
     int payload_len = header[1] & 0x7F;
+    // Validación extra para identificar errores típicos del servidor
+    if (opcode == 0 && !masked && payload_len > 0) {
+        printf("dvertencia: el servidor probablemente respondió sin usar el protocolo WebSocket.\n");
+        printf("Contenido recibido sin frame válido. Opcode = 0, máscara no presente.\n");
+        return -2; // o -1 si quieres forzar error
+    }
 
+    if (opcode != 0x1 && opcode != 0x2 && opcode != 0x8) {
+        printf("Error: Opcode WebSocket no válido (%d). El servidor podría estar enviando datos mal formateados.\n", opcode);
+        return -1;
+    }
     if (opcode == 0x8) {
         printf("Conexión cerrada por el servidor.\n");
         return 0;
@@ -196,6 +206,10 @@ void handle_server_response(int socket_fd) {
     flush_socket(socket_fd);
     char buffer[1024];
     int n = websocket_receive(socket_fd, buffer, sizeof(buffer));
+    if (n == -2) {
+        printf("Error de protocolo: El servidor no está usando WebSocket correctamente.\n");
+        return;
+    }
     if (n <= 0) raise_error("Error al recibir datos del servidor.");
 
 
