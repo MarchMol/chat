@@ -68,6 +68,8 @@ int find_user_socket(const char *username) {
 
 void add_message_to_history(const char *chat_name, const char *username, const char *message) {
     pthread_mutex_lock(&chat_mutex);
+
+    // Buscar si el historial del chat ya existe
     for (int i = 0; i < chat_count; i++) {
         if (strcmp(chat_histories[i].chat_name, chat_name) == 0) {
             if (chat_histories[i].message_count < 100) {
@@ -79,47 +81,65 @@ void add_message_to_history(const char *chat_name, const char *username, const c
             return;
         }
     }
+
+    // Si el historial no existe, crearlo
+    if (chat_count < 10) {  // Límite de 10 chats diferentes
+        strcpy(chat_histories[chat_count].chat_name, chat_name);
+        chat_histories[chat_count].message_count = 0;
+
+        strcpy(chat_histories[chat_count].messages[0].username, username);
+        strcpy(chat_histories[chat_count].messages[0].message, message);
+        chat_histories[chat_count].message_count++;
+
+        chat_count++;
+    }
+
     pthread_mutex_unlock(&chat_mutex);
+}
+
+void send_websocket_message(int client_fd, const char *message) {
+    size_t message_length = strlen(message);
+    uint8_t frame[2 + message_length];
+
+    frame[0] = 0x81;  // FIN=1, tipo=Texto
+    frame[1] = message_length;  // Longitud del mensaje (asumiendo que es < 126)
+
+    memcpy(&frame[2], message, message_length);
+
+    send(client_fd, frame, sizeof(frame), 0);
 }
 
 
 void handle_get_history(int client_fd, const char *chat_name) {
+    printf("Solicitando historial para: %s\n", chat_name);
+    printf("hay: %d chats\n", chat_count);
+    pthread_mutex_lock(&chat_mutex);
+
     for (int i = 0; i < chat_count; i++) {
         if (strcmp(chat_histories[i].chat_name, chat_name) == 0) {
-            // Enviar la cantidad de mensajes
             char buffer[1024];
-            buffer[0] = 56;  // Tipo de mensaje (56 para respuesta de historial)
+            int offset = 0;
 
-            // Número de mensajes
-            buffer[1] = chat_histories[i].message_count;
-
-            // Enviar cada mensaje
-            int offset = 2;  // Empieza después del tipo y número de mensajes
+            // Construir mensaje de historial en formato de texto
             for (int j = 0; j < chat_histories[i].message_count; j++) {
-                int username_len = strlen(chat_histories[i].messages[j].username);
-                int message_len = strlen(chat_histories[i].messages[j].message);
-
-                buffer[offset++] = username_len;
-                memcpy(buffer + offset, chat_histories[i].messages[j].username, username_len);
-                offset += username_len;
-
-                buffer[offset++] = message_len;
-                memcpy(buffer + offset, chat_histories[i].messages[j].message, message_len);
-                offset += message_len;
+                offset += snprintf(buffer + offset, sizeof(buffer) - offset,
+                                   "%s: %s\n",
+                                   chat_histories[i].messages[j].username,
+                                   chat_histories[i].messages[j].message);
             }
 
-            // Enviar el mensaje completo al cliente
-            int n = write(client_fd, buffer, offset);
-            if (n < 0) {
-                raise_error("Error enviando el historial de mensajes");
-            }
+            pthread_mutex_unlock(&chat_mutex);
+
+            // Enviar como frame WebSocket
+            send_websocket_message(client_fd, buffer);
             return;
         }
     }
 
-    // Si no se encuentra el historial
-    char error_msg[] = "No se encontró historial para este chat.";
-    write(client_fd, error_msg, sizeof(error_msg));
+    pthread_mutex_unlock(&chat_mutex);
+
+    // Si no hay historial
+    send_websocket_message(client_fd, "No se encontró historial para este chat.");
 }
 
 
@@ -484,7 +504,7 @@ void *handle_client(void *arg) {
             printf("Mensaje de: '%s' para '%s': %s\n", client_ip, recipient, message);
             if (strcmp(recipient, "~") == 0) {
                 send_message_to_all(accepted_sockfd, recipient, message);
-                add_message_to_history("general", recipient, message);
+                add_message_to_history(recipient, client_ip, message);
             } else {
                 int recipient_fd = find_user_socket(recipient);
                 if (recipient_fd == -1) {
