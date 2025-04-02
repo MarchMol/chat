@@ -793,12 +793,44 @@ int main(int argc, char *argv[]) {
         pthread_mutex_unlock(&ausers_mutex);
 
         // Responder handshake
-        char response[] =
-            "HTTP/1.1 101 Switching Protocols\r\n"
-            "Upgrade: websocket\r\n"
-            "Connection: Upgrade\r\n"
-	    "\r\n";  // ← esto es obligatorio
-        send(*accepted_sockfd, response, strlen(response), 0);
+        // Buscar Sec-WebSocket-Key
+        char sec_websocket_key[128] = {0};
+        char *key_line = strstr(buffer, "Sec-WebSocket-Key:");
+        if (key_line) {
+            sscanf(key_line, "Sec-WebSocket-Key: %127s", sec_websocket_key);
+
+            // Concatenar con el GUID estándar
+            char concat_key[256];
+            snprintf(concat_key, sizeof(concat_key), "%s258EAFA5-E914-47DA-95CA-C5AB0DC85B11", sec_websocket_key);
+
+            // Calcular SHA1
+            unsigned char sha1_result[SHA_DIGEST_LENGTH];
+            SHA1((unsigned char*)concat_key, strlen(concat_key), sha1_result);
+
+            // Codificar en Base64
+            char *accept_key = base64_encode(sha1_result, SHA_DIGEST_LENGTH);
+
+            // Construir respuesta completa
+            char response[512];
+            snprintf(response, sizeof(response),
+                "HTTP/1.1 101 Switching Protocols\r\n"
+                "Upgrade: websocket\r\n"
+                "Connection: Upgrade\r\n"
+                "Sec-WebSocket-Accept: %s\r\n"
+                "\r\n", accept_key);
+
+            // Enviar respuesta
+            send(*accepted_sockfd, response, strlen(response), 0);
+
+            free(accept_key);
+        } else {
+            // Si no hay Sec-WebSocket-Key, responde con error
+            char error_response[] = "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n";
+            send(*accepted_sockfd, error_response, strlen(error_response), 0);
+            close(*accepted_sockfd);
+            free(accepted_sockfd);
+            continue;
+        }
 
         for (int i = 0; i < ausers_n; i++) {
             printf("U%d: %s %s\n", i, ausers[i].uname, ausers[i].uip);
