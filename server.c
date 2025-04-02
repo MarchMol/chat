@@ -597,20 +597,18 @@ void *handle_client(void *arg) {
 
         while (1) {  // Bucle para recibir todo el mensaje WebSocket
             n = recv(accepted_sockfd, buffer + total_received, sizeof(buffer) - total_received, 0);
+            if (n <= 0) {
+                if (n == 0) {
+                    printf("Cliente cerró la conexión: %s\n", client_username);
+                } else {
+                    perror("Error en recv");
+                }
 
-            if (n < 0) {
-                printf("Error leyendo\n");
-                fflush(stdout);
-                break;
-            }
-            if (n == 0) {
-                printf("User disconnected %s\n", client_ip);
-                fflush(stdout);
                 pthread_mutex_lock(&clients_mutex);
                 for (int i = 0; i < num_clients; i++) {
                     if (clients[i]->socket_fd == accepted_sockfd) {
-                        clients[i]->socket_fd = -1;          // Marcar como desconectado
-                        clients[i]->status = 0;              // Cambiar estado a DESCONECTADO
+                        clients[i]->socket_fd = -1;
+                        clients[i]->status = 0;
                         broadcast_status_change(client_sockets, num_clients, clients[i]->username, 0);
                         break;
                     }
