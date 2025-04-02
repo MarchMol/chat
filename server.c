@@ -757,26 +757,27 @@ int main(int argc, char *argv[]) {
         if (name_start) {
             sscanf(name_start, "?name=%49s", name_str);
         }
-	// Validar que el nombre no esté vacío, no sea "~" y no esté duplicado
-	pthread_mutex_lock(&clients_mutex);
-	int name_exists = 0;
-	for (int i = 0; i < num_clients; i++) {
-	    if (strcmp(clients[i]->username, name_str) == 0) {
-	        name_exists = 1;
-	        break;
-	    }
-	}
-	pthread_mutex_unlock(&clients_mutex);
-	
-	if (strlen(name_str) == 0 || strcmp(name_str, "~") == 0 || name_exists) {
-	    // Nombre inválido o duplicado: responder con HTTP 400 y cerrar
-	    char error_response[] = "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n";
-	    send(*accepted_sockfd, error_response, strlen(error_response), 0);
-	    close(*accepted_sockfd);
-	    free(accepted_sockfd);
-	    continue;
-	}
-
+        /**
+        // Validar que el nombre no esté vacío, no sea "~" y no esté duplicado
+        pthread_mutex_lock(&clients_mutex);
+        int name_exists = 0;
+        for (int i = 0; i < num_clients; i++) {
+            if (strcmp(clients[i]->username, name_str) == 0) {
+                name_exists = 1;
+                break;
+            }
+        }
+        pthread_mutex_unlock(&clients_mutex);
+        
+        if (strlen(name_str) == 0 || strcmp(name_str, "~") == 0 || name_exists) {
+            // Nombre inválido o duplicado: responder con HTTP 400 y cerrar
+            char error_response[] = "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n";
+            send(*accepted_sockfd, error_response, strlen(error_response), 0);
+            close(*accepted_sockfd);
+            free(accepted_sockfd);
+            continue;
+        }
+        */
         // Guardar usuario en la lista de clientes
         pthread_mutex_lock(&clients_mutex);
 
