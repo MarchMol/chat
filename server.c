@@ -286,38 +286,26 @@ void broadcast_status_change(int *client_sockets, int num_clients, const char *u
 
 // Función para enviar un mensaje a todos los clientes conectados
 void send_message_to_all(int sender_fd, const char *sender, const char *message) {
-    int sender_len = strlen(sender);
-    int message_len = strlen(message);
-    char buffer[256];
-    
-    buffer[0] = 55;  // Tipo de mensaje
-    buffer[1] = sender_len;  // Longitud del nombre del usuario
-    memcpy(buffer + 2, sender, sender_len);  // Nombre del usuario
-    buffer[2 + sender_len] = message_len;  // Longitud del mensaje
-    memcpy(buffer + 3 + sender_len, message, message_len);  // Contenido del mensaje
+    char formatted_message[256];
+    snprintf(formatted_message, sizeof(formatted_message), "%s: %s", sender, message);
 
-    // Enviar el mensaje a todos los clientes conectados
+    // Enviar el mensaje a todos los clientes conectados usando WebSockets
     for (int i = 0; i < num_clients; i++) {
         if (client_sockets[i] != sender_fd) {
-            write(client_sockets[i], buffer, 3 + sender_len + message_len);
+            send_websocket_message(client_sockets[i], formatted_message);
         }
-    }    
+    }
 }
+
 
 // Función para enviar un mensaje a un cliente específico
 void send_message_to_client(int recipient_fd, const char *sender, const char *message) {
-    int sender_len = strlen(sender);
-    int message_len = strlen(message);
-    char buffer[256];
+    char formatted_message[256];
+    snprintf(formatted_message, sizeof(formatted_message), "%s: %s", sender, message);
 
-    buffer[0] = 55;  // Tipo de mensaje
-    buffer[1] = sender_len;  // Longitud del nombre del usuario
-    memcpy(buffer + 2, sender, sender_len);  // Nombre del usuario
-    buffer[2 + sender_len] = message_len;  // Longitud del mensaje
-    memcpy(buffer + 3 + sender_len, message, message_len);  // Contenido del mensaje
-
-    write(recipient_fd, buffer, 3 + sender_len + message_len);
+    send_websocket_message(recipient_fd, formatted_message);
 }
+
 /*
 int main(int argc, char *argv[]){
     // Argument Check
@@ -789,20 +777,9 @@ int main(int argc, char *argv[]) {
         char response[] =
             "HTTP/1.1 101 Switching Protocols\r\n"
             "Upgrade: websocket\r\n"
-            "Connection: Upgrade\r\n"
-            "\r\n";  // esta línea es esencial
+            "Connection: Upgrade\r\n";
         send(*accepted_sockfd, response, strlen(response), 0);
-	// Espera a que el cliente procese el handshake
-        usleep(100000);  // 100 milisegundos
 
-	// Enviar mensaje tipo 53 de bienvenida
-        char welcome[256];
-        int len = strlen(name_str);
-        welcome[0] = 53;
-        welcome[1] = len;
-        memcpy(welcome + 2, name_str, len);
-        welcome[2 + len] = 1; // ACTIVO por defecto
-        send_websocket_binary(*accepted_sockfd, (uint8_t *)welcome, 3 + len);
         for (int i = 0; i < ausers_n; i++) {
             printf("U%d: %s %s\n", i, ausers[i].uname, ausers[i].uip);
             fflush(stdout);
