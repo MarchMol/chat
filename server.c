@@ -9,7 +9,7 @@
 #include <pthread.h>
 #include <bits/pthreadtypes.h>
 
-#define USER_LIMIT 5
+#define USER_LIMIT 100
 #define STR_LEN 50
 pthread_mutex_t clients_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t chat_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -22,7 +22,7 @@ active_users ausers[USER_LIMIT];
 int ausers_n = 0;
 pthread_mutex_t ausers_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-#define MAX_CLIENTS 10  // Ajusta según lo necesites
+#define MAX_CLIENTS 100  // Ajusta según lo necesites
 int client_sockets[MAX_CLIENTS];  // Almacena los sockets de los clientes
 typedef struct {
     int socket_fd;
