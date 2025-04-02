@@ -298,24 +298,41 @@ void handle_get_history(int client_fd, const char *chat_partner) {
 
 // Función para enviar un mensaje a todos los clientes conectados
 void send_message_to_all(int sender_fd, const char *sender, const char *message) {
-    char formatted_message[256];
-    snprintf(formatted_message, sizeof(formatted_message), "%s: %s", sender, message);
+    uint8_t formatted_message[256];
+    int sender_len = strlen(sender);
+    int message_len = strlen(message);
 
-    // Enviar el mensaje a todos los clientes conectados usando WebSockets binarios
+    formatted_message[0] = 55; // Tipo de mensaje
+    formatted_message[1] = sender_len;
+    memcpy(&formatted_message[2], sender, sender_len);
+    formatted_message[2 + sender_len] = message_len;
+    memcpy(&formatted_message[3 + sender_len], message, message_len);
+
+    int total_len = 3 + sender_len + message_len;
+
     for (int i = 0; i < num_clients; i++) {
-        if (client_sockets[i] != sender_fd) {
-            send_websocket_binary(client_sockets[i], (uint8_t *)formatted_message, strlen(formatted_message));
-        }
+        send_websocket_binary(client_sockets[i], formatted_message, total_len);
     }
 }
 
+
 // Función para enviar un mensaje a un cliente específico
 void send_message_to_client(int recipient_fd, const char *sender, const char *message) {
-    char formatted_message[256];
-    snprintf(formatted_message, sizeof(formatted_message), "%s: %s", sender, message);
+    uint8_t formatted_message[256];
+    int sender_len = strlen(sender);
+    int message_len = strlen(message);
 
-    send_websocket_binary(recipient_fd, (uint8_t *)formatted_message, strlen(formatted_message));
+    formatted_message[0] = 55; // Tipo de mensaje
+    formatted_message[1] = sender_len;
+    memcpy(&formatted_message[2], sender, sender_len);
+    formatted_message[2 + sender_len] = message_len;
+    memcpy(&formatted_message[3 + sender_len], message, message_len);
+
+    int total_len = 3 + sender_len + message_len;
+
+    send_websocket_binary(recipient_fd, formatted_message, total_len);
 }
+
 
 
 // Función para enviar un mensaje de estatus actualizado a todos los clientes
@@ -686,10 +703,12 @@ void *handle_client(void *arg) {
                     send_websocket_message(accepted_sockfd, "El usuario no existe.");
                 } else {
                     send_message_to_client(recipient_fd, client_username, message);
+                    send_message_to_client(accepted_sockfd, client_username, message);  // 🔹 Ahora el remitente también recibe el mensaje
                     add_message_to_history(client_username, recipient, client_username, message);
                 }
             }
-        } else if (decoded_message[0] == 5) {  // Solicitud de historial
+        }
+         else if (decoded_message[0] == 5) {  // Solicitud de historial
             int username_len = decoded_message[1];
             char username[50];
             memcpy(username, decoded_message + 2, username_len);
