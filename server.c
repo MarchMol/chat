@@ -251,8 +251,8 @@ void handle_get_history(int client_fd, const char *chat_partner) {
     const char *requesting_user = get_username_by_socket(client_fd);
     
     if (strcmp(requesting_user, "Desconocido") == 0) {
-        const char *error_msg = "Error: Usuario no identificado.";
-        send_websocket_binary(client_fd, (uint8_t *)error_msg, strlen(error_msg));
+        uint8_t error_msg[3] = {50, 2, 0}; // Tipo 50: error | Código 2: usuario no identificado
+        send_websocket_binary(client_fd, error_msg, 3);
         return;
     }
 
@@ -273,28 +273,41 @@ void handle_get_history(int client_fd, const char *chat_partner) {
         if (strcmp(chat_histories[i].chat_name, chat_id) == 0) {
             printf("Se encontró el chat\n");
 
-            char buffer[1024];
+            uint8_t buffer[1024];
             int offset = 0;
 
+            buffer[offset++] = 56;  // Tipo de mensaje (Historial de mensajes)
+            buffer[offset++] = chat_histories[i].message_count; // Número de mensajes
+
             for (int j = 0; j < chat_histories[i].message_count; j++) {
-                offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                                   "%s: %s\n",
-                                   chat_histories[i].messages[j].username,
-                                   chat_histories[i].messages[j].message);
+                const char *username = chat_histories[i].messages[j].username;
+                const char *message = chat_histories[i].messages[j].message;
+
+                uint8_t username_len = strlen(username);
+                uint8_t message_len = strlen(message);
+
+                buffer[offset++] = username_len; // Longitud del usuario
+                memcpy(buffer + offset, username, username_len);
+                offset += username_len;
+
+                buffer[offset++] = message_len; // Longitud del mensaje
+                memcpy(buffer + offset, message, message_len);
+                offset += message_len;
             }
 
             pthread_mutex_unlock(&chat_mutex);
-
-            send_websocket_binary(client_fd, (uint8_t *)buffer, offset);
+            send_websocket_binary(client_fd, buffer, offset);
             return;
         }
     }
 
     pthread_mutex_unlock(&chat_mutex);
 
-    const char *not_found_msg = "No se encontró historial para esta conversación.";
-    send_websocket_binary(client_fd, (uint8_t *)not_found_msg, strlen(not_found_msg));
+    // No se encontró historial
+    uint8_t not_found_msg[3] = {50, 3, 0}; // Tipo 50: error | Código 3: historial no encontrado
+    send_websocket_binary(client_fd, not_found_msg, 3);
 }
+
 
 // Función para enviar un mensaje a todos los clientes conectados
 void send_message_to_all(int sender_fd, const char *sender, const char *message) {
