@@ -789,9 +789,20 @@ int main(int argc, char *argv[]) {
         char response[] =
             "HTTP/1.1 101 Switching Protocols\r\n"
             "Upgrade: websocket\r\n"
-            "Connection: Upgrade\r\n";
+            "Connection: Upgrade\r\n"
+            "\r\n";  // esta línea es esencial
         send(*accepted_sockfd, response, strlen(response), 0);
+	// Espera a que el cliente procese el handshake
+        usleep(100000);  // 100 milisegundos
 
+	// Enviar mensaje tipo 53 de bienvenida
+        char welcome[256];
+        int len = strlen(name_str);
+        welcome[0] = 53;
+        welcome[1] = len;
+        memcpy(welcome + 2, name_str, len);
+        welcome[2 + len] = 1; // ACTIVO por defecto
+        send_websocket_binary(*accepted_sockfd, (uint8_t *)welcome, 3 + len);
         for (int i = 0; i < ausers_n; i++) {
             printf("U%d: %s %s\n", i, ausers[i].uname, ausers[i].uip);
             fflush(stdout);

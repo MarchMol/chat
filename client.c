@@ -259,6 +259,18 @@ void handle_server_response(int socket_fd) {
             printf("  - Estado: %s\n", status_str);
             break;
         }
+        case 53: {
+            int len = buffer[1];
+            char username[256];
+            memcpy(username, buffer + 2, len);
+            username[len] = '\0';
+            int status = buffer[2 + len];
+            const char *status_str = (status == 1) ? "ACTIVO" :
+                                     (status == 2) ? "OCUPADO" :
+                                     (status == 3) ? "INACTIVO" : "DESCONECTADO";
+            printf("Bienvenida del servidor: %s ha iniciado sesión como [%s]\n", username, status_str);
+            break;
+        }
 	case 54: {
             int len = buffer[1];
             char username[256];
@@ -470,8 +482,27 @@ int main(int argc, char *argv[]){
         raise_error("El servidor no aceptó el upgrade a WebSocket.");
     }
     printf("Conexión establecida: %s\n", buffer);
-
-
+    // Verificar si hay más datos después del handshake
+    // y manejar mensaje 53 de bienvenida si está pegado
+    char leftover[1024];
+    int remaining = recv(socket_fd, leftover, sizeof(leftover), MSG_DONTWAIT);
+    if (remaining > 0) {
+        char output[1024];
+        memcpy(output, leftover, remaining);
+        output[remaining] = '\0';
+        int tipo = output[0];
+        if (tipo == 53) {
+            int len = output[1];
+            char username[256];
+            memcpy(username, output + 2, len);
+            username[len] = '\0';
+            int status = output[2 + len];
+            const char *status_str = (status == 1) ? "ACTIVO" :
+                                    (status == 2) ? "OCUPADO" :
+                                    (status == 3) ? "INACTIVO" : "DESCONECTADO";
+            printf("Bienvenida del servidor: %s ha iniciado sesión como [%s]\n", username, status_str);
+        }
+    }
     // Escritura
         // bzero(buffer, 255);
         // fgets(buffer, 255, stdin);
