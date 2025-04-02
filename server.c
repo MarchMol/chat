@@ -8,6 +8,10 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 #include <bits/pthreadtypes.h>
+#include <openssl/sha.h>
+#include <openssl/bio.h>
+#include <openssl/evp.h>
+#include <openssl/buffer.h>
 
 #define USER_LIMIT 100
 #define STR_LEN 50
