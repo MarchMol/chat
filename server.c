@@ -251,7 +251,8 @@ void handle_get_history(int client_fd, const char *chat_partner) {
     const char *requesting_user = get_username_by_socket(client_fd);
     
     if (strcmp(requesting_user, "Desconocido") == 0) {
-        send_websocket_message(client_fd, "Error: Usuario no identificado.");
+        const char *error_msg = "Error: Usuario no identificado.";
+        send_websocket_binary(client_fd, (uint8_t *)error_msg, strlen(error_msg));
         return;
     }
 
@@ -284,15 +285,38 @@ void handle_get_history(int client_fd, const char *chat_partner) {
 
             pthread_mutex_unlock(&chat_mutex);
 
-            send_websocket_message(client_fd, buffer);
+            send_websocket_binary(client_fd, (uint8_t *)buffer, offset);
             return;
         }
     }
 
     pthread_mutex_unlock(&chat_mutex);
 
-    send_websocket_message(client_fd, "No se encontró historial para esta conversación.");
+    const char *not_found_msg = "No se encontró historial para esta conversación.";
+    send_websocket_binary(client_fd, (uint8_t *)not_found_msg, strlen(not_found_msg));
 }
+
+// Función para enviar un mensaje a todos los clientes conectados
+void send_message_to_all(int sender_fd, const char *sender, const char *message) {
+    char formatted_message[256];
+    snprintf(formatted_message, sizeof(formatted_message), "%s: %s", sender, message);
+
+    // Enviar el mensaje a todos los clientes conectados usando WebSockets binarios
+    for (int i = 0; i < num_clients; i++) {
+        if (client_sockets[i] != sender_fd) {
+            send_websocket_binary(client_sockets[i], (uint8_t *)formatted_message, strlen(formatted_message));
+        }
+    }
+}
+
+// Función para enviar un mensaje a un cliente específico
+void send_message_to_client(int recipient_fd, const char *sender, const char *message) {
+    char formatted_message[256];
+    snprintf(formatted_message, sizeof(formatted_message), "%s: %s", sender, message);
+
+    send_websocket_binary(recipient_fd, (uint8_t *)formatted_message, strlen(formatted_message));
+}
+
 
 // Función para enviar un mensaje de estatus actualizado a todos los clientes
 void broadcast_status_change(int *client_sockets, int num_clients, const char *username, int status) {
@@ -311,27 +335,7 @@ void broadcast_status_change(int *client_sockets, int num_clients, const char *u
     }
 }
 
-// Función para enviar un mensaje a todos los clientes conectados
-void send_message_to_all(int sender_fd, const char *sender, const char *message) {
-    char formatted_message[256];
-    snprintf(formatted_message, sizeof(formatted_message), "%s: %s", sender, message);
 
-    // Enviar el mensaje a todos los clientes conectados usando WebSockets
-    for (int i = 0; i < num_clients; i++) {
-        if (client_sockets[i] != sender_fd) {
-            send_websocket_message(client_sockets[i], formatted_message);
-        }
-    }
-}
-
-
-// Función para enviar un mensaje a un cliente específico
-void send_message_to_client(int recipient_fd, const char *sender, const char *message) {
-    char formatted_message[256];
-    snprintf(formatted_message, sizeof(formatted_message), "%s: %s", sender, message);
-
-    send_websocket_message(recipient_fd, formatted_message);
-}
 
 /*
 int main(int argc, char *argv[]){
@@ -876,4 +880,3 @@ int main(int argc, char *argv[]) {
     close(socket_fd);
     return 0;
 }
-
