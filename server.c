@@ -614,8 +614,17 @@ void *handle_client(void *arg) {
 
         while (1) {  // Bucle para recibir todo el mensaje WebSocket
             n = recv(accepted_sockfd, buffer + total_received, sizeof(buffer) - total_received, 0);
-            if (n <= 0) {
-                if (n == 0) {
+
+            printf("Buffer recibido en hexadecimal: ");
+            for (int i = 0; i < total_received; i++) {
+                printf("%02X ", (unsigned char)buffer[i]);
+            }
+            printf("\n");
+    
+            // Decodificar el mensaje WebSocket
+            decode_websocket_message(buffer, total_received, decoded_message);
+            if (decoded_message[0] == 0) {
+                if (decoded_message[0] == 0) {
                     printf("Cliente cerró la conexión: %s\n", client_username);
                 } else {
                     perror("Error en recv");
@@ -642,16 +651,6 @@ void *handle_client(void *arg) {
             int fin_bit = buffer[0] & 0x80;  
             if (fin_bit) break;
         }
-
-        printf("Buffer recibido en hexadecimal: ");
-        for (int i = 0; i < total_received; i++) {
-            printf("%02X ", (unsigned char)buffer[i]);
-        }
-        printf("\n");
-
-        // Decodificar el mensaje WebSocket
-        decode_websocket_message(buffer, total_received, decoded_message);
-
         printf("Mensaje decodificado: %s\n", decoded_message);
 
         // Manejo del mensaje
