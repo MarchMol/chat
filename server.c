@@ -796,7 +796,8 @@ int main(int argc, char *argv[]) {
         char response[] =
             "HTTP/1.1 101 Switching Protocols\r\n"
             "Upgrade: websocket\r\n"
-            "Connection: Upgrade\r\n";
+            "Connection: Upgrade\r\n"
+	    "\r\n";  // ← esto es obligatorio
         send(*accepted_sockfd, response, strlen(response), 0);
 
         for (int i = 0; i < ausers_n; i++) {
