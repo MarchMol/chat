@@ -136,6 +136,8 @@ Se utilizan frames binarios y de texto del protocolo WebSocket para enviar mensa
 ## Recursos
 - RFC 6455 - The WebSocket Protocol: https://datatracker.ietf.org/doc/html/rfc6455
 - WebSocket Handshake Explained: https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API/Writing_WebSocket_server
-- Protocolo WebSocket para el proyecto: https://docs.google.com/document/d/1LiqxPx2Z1Ptg1pnI9gBY7opORUvIHQqn9DgjF4AMgMI/edit?usp=sharing 
+- Protocolo WebSocket para el proyecto: https://docs.google.com/document/d/1LiqxPx2Z1Ptg1pnI9gBY7opORUvIHQqn9DgjF4AMgMI/edit?usp=sharing
+- ### Interfaz gráfica en Qt c++ para el chat https://github.com/Sofiamishel2003/Interfaz_Grafica_Chat.git
 ---
+
 
