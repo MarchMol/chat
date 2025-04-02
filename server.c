@@ -606,6 +606,17 @@ void *handle_client(void *arg) {
             if (n == 0) {
                 printf("User disconnected %s\n", client_ip);
                 fflush(stdout);
+                pthread_mutex_lock(&clients_mutex);
+                for (int i = 0; i < num_clients; i++) {
+                    if (clients[i]->socket_fd == accepted_sockfd) {
+                        clients[i]->socket_fd = -1;          // Marcar como desconectado
+                        clients[i]->status = 0;              // Cambiar estado a DESCONECTADO
+                        broadcast_status_change(client_sockets, num_clients, clients[i]->username, 0);
+                        break;
+                    }
+                }
+                pthread_mutex_unlock(&clients_mutex);
+
                 close(accepted_sockfd);
                 return NULL;
             }
@@ -761,35 +772,40 @@ int main(int argc, char *argv[]) {
         if (name_start) {
             sscanf(name_start, "?name=%49s", name_str);
         }
-        /**
-        // Validar que el nombre no esté vacío, no sea "~" y no esté duplicado
         pthread_mutex_lock(&clients_mutex);
-        int name_exists = 0;
+
+        int user_index = -1;
+        int username_already_connected = 0;
         for (int i = 0; i < num_clients; i++) {
             if (strcmp(clients[i]->username, name_str) == 0) {
-                name_exists = 1;
+                user_index = i;
+                // Validar si el socket está activo
+                if (clients[i]->socket_fd > 0) {
+                    // Enviar señal para verificar si sigue vivo (opcional: send(clients[i]->socket_fd, "", 0, 0))
+                    username_already_connected = 1;
+                }
                 break;
             }
         }
-        pthread_mutex_unlock(&clients_mutex);
-        
-        if (strlen(name_str) == 0 || strcmp(name_str, "~") == 0 || name_exists) {
-            // Nombre inválido o duplicado: responder con HTTP 400 y cerrar
+
+        if (user_index != -1 && clients[user_index]->socket_fd != -1) {
+            // Usuario ya conectado activamente: rechazar
+            pthread_mutex_unlock(&clients_mutex);
             char error_response[] = "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n";
             send(*accepted_sockfd, error_response, strlen(error_response), 0);
             close(*accepted_sockfd);
             free(accepted_sockfd);
             continue;
+        } else if (user_index != -1) {
+            // Usuario reconectando
+            clients[user_index]->socket_fd = *accepted_sockfd;
+            clients[user_index]->status = 1;
+            printf("Usuario reconectado: %s con nuevo socket %d\n", name_str, *accepted_sockfd);
+            broadcast_status_change(client_sockets, num_clients, clients[user_index]->username, 1);
         }
-        */
-        // Guardar usuario en la lista de clientes
-        pthread_mutex_lock(&clients_mutex);
-
-        if (num_clients < USER_LIMIT) {
+         else if (num_clients < USER_LIMIT) {
+            // Nuevo usuario
             clients[num_clients] = malloc(sizeof(Client));
-	    clients[num_clients]->socket_fd = *accepted_sockfd;
-            strcpy(clients[num_clients]->username, name_str);
-            clients[num_clients]->status = 1; // NUEVO: por defecto ACTIVO
             if (!clients[num_clients]) {
                 perror("Error asignando memoria");
                 pthread_mutex_unlock(&clients_mutex);
@@ -800,30 +816,20 @@ int main(int argc, char *argv[]) {
 
             clients[num_clients]->socket_fd = *accepted_sockfd;
             strcpy(clients[num_clients]->username, name_str);
+            clients[num_clients]->status = 1;
             num_clients++;
 
-            printf("Cliente agregado: %s con socket %d\n", name_str, *accepted_sockfd);
-            
+            printf("Nuevo cliente agregado: %s con socket %d\n", name_str, *accepted_sockfd);
         } else {
-            printf("Límite de clientes alcanzado\n");
+            // Límite de usuarios alcanzado
             pthread_mutex_unlock(&clients_mutex);
+            char error_response[] = "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n";
+            send(*accepted_sockfd, error_response, strlen(error_response), 0);
             close(*accepted_sockfd);
             free(accepted_sockfd);
             continue;
         }
-        
         pthread_mutex_unlock(&clients_mutex);
-        print_clients();
-
-        // Guardar usuario en la lista con mutex
-        pthread_mutex_lock(&ausers_mutex);
-        if (ausers_n < USER_LIMIT) {
-            strcpy(ausers[ausers_n].uname, name_str);
-            strcpy(ausers[ausers_n].uip, client_ip);
-            ausers_n++;
-        }
-        pthread_mutex_unlock(&ausers_mutex);
-
         // Responder handshake
         // Buscar Sec-WebSocket-Key
         char sec_websocket_key[128] = {0};
